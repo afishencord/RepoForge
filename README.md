@@ -94,13 +94,13 @@ The System page reports whether required tooling is available. Configuration pag
 
 ## Docker CE Repository Notes
 
-Use an explicit RHEL path when running inside the Fedora builder container. For example:
+Use an explicit RHEL path when running inside the builder container. For example:
 
 ```text
 https://example.repoforge.com/linux/rhel/9/x86_64/stable
 ```
 
-Using `$releasever` inside a Fedora-based builder may resolve to Fedora's release value rather than the target OS version.
+Using `$releasever` inside a builder will resolve to the host OS release value rather than the target OS version.
 
 ## Project Structure
 
