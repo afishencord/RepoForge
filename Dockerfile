@@ -5,6 +5,7 @@ RUN dnf -y update && \
       python3 \
       python3-pip \
       dnf-plugins-core \
+      dnf-utils \
       createrepo_c \
       rpm \
       rpm-build \

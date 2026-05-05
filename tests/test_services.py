@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.services.checksum_service import generate_checksums, sha256_file, write_sha256sums
 from app.services.dependency_service import filter_rpm_requirements
-from app.services.dnf_service import RepoSource, create_repo_file_content, dnf_download_command, reposync_command
+from app.services.dnf_service import RepoSource, create_repo_file_content, dnf_download_command, reposync_command, temporary_repo_dir, with_reposdir
 from app.services.gpg_service import GpgKeyRequest, key_params_content
 from app.services.iso_service import copy_into_iso_root, xorriso_command
 from app.services.manifest_service import BundleManifest, write_manifest, write_package_list
@@ -101,6 +101,23 @@ def test_repo_file_content_supports_baseurl_and_masks_nothing_in_data() -> None:
     assert "enabled=1" in content
     assert "baseurl=https://download.docker.com/linux/rhel/$releasever/$basearch/stable" in content
     assert "gpgkey=https://download.docker.com/linux/rhel/gpg" in content
+
+
+def test_ui_defined_repo_sources_get_a_transient_reposdir() -> None:
+    repo = RepoSource(
+        name="Docker CE Stable",
+        repo_id="docker-ce",
+        baseurl="https://download.docker.com/linux/rhel/9/x86_64/stable",
+        gpgkey_url="https://download.docker.com/linux/rhel/gpg",
+    )
+
+    with temporary_repo_dir(repo) as repo_dir:
+        assert repo_dir is not None
+        assert (repo_dir / "docker-ce.repo").exists()
+        command = with_reposdir(reposync_command(repo.repo_id, "/tmp/out"), repo_dir)
+
+    assert command[:2] == ["reposync", f"--setopt=reposdir={repo_dir}"]
+    assert "--repoid=docker-ce" in command
 
 
 def test_dependency_requirement_filtering() -> None:

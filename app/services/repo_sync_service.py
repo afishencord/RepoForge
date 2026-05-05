@@ -26,13 +26,12 @@ def sync_vendor_repo(
 ) -> list[CommandResult]:
     plan.dest_dir.mkdir(parents=True, exist_ok=True)
     if plan.mode == "full_mirror":
-        return [sync_full_repo(plan.repo_source.repo_id, plan.dest_dir, runner=runner, log=log)]
+        return [sync_full_repo(plan.repo_source, plan.dest_dir, runner=runner, log=log)]
     if plan.mode == "curated_packages":
         return [
             download_package_with_dependencies(package, plan.repo_source, plan.dest_dir, runner=runner, log=log)
             for package in plan.packages
         ]
     if plan.mode == "metadata_only":
-        return [sync_full_repo(plan.repo_source.repo_id, plan.dest_dir, runner=runner, log=log)]
+        return [sync_full_repo(plan.repo_source, plan.dest_dir, runner=runner, log=log)]
     raise ValueError(f"unsupported sync mode: {plan.mode}")
-

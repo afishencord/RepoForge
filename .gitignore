@@ -6,7 +6,9 @@ __pycache__/
 .venv/
 venv/
 
-storage/*
+# Keep storage directory structure, ignore generated contents.
+storage/**
+!storage/
 !storage/.gitkeep
 !storage/uploads/
 !storage/uploads/.gitkeep

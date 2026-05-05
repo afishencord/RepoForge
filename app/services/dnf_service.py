@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from tempfile import NamedTemporaryFile
-from typing import Callable
+from typing import Callable, Iterator
 
 from .runner import CommandResult, SubprocessRunner, default_runner
 
@@ -73,14 +75,45 @@ def create_temp_repo_file(repo_source: RepoSource) -> Path:
     return Path(temp.name)
 
 
+@contextmanager
+def temporary_repo_dir(repo_source: RepoSource) -> Iterator[Path | None]:
+    """Create a transient reposdir for UI-defined repos.
+
+    Repos already configured on the builder host only need their repo ID. Repos
+    created in RepoForge need a repo file for this command invocation so DNF and
+    reposync can resolve the supplied baseurl/mirrorlist.
+    """
+
+    if not repo_source.baseurl and not repo_source.mirrorlist:
+        yield None
+        return
+
+    with TemporaryDirectory(prefix="repoforge-repos-") as temp_dir:
+        repo_dir = Path(temp_dir)
+        repo_file = repo_dir / f"{repo_source.repo_id}.repo"
+        repo_file.write_text(create_repo_file_content(repo_source), encoding="utf-8")
+        yield repo_dir
+
+
+def with_reposdir(command: list[str], repo_dir: Path | None) -> list[str]:
+    if repo_dir is None:
+        return command
+    if command[0] == "dnf":
+        return ["dnf", f"--setopt=reposdir={repo_dir}", *command[1:]]
+    if command[0] == "reposync":
+        return ["reposync", f"--setopt=reposdir={repo_dir}", *command[1:]]
+    return command
+
+
 def validate_repo_source(
     repo_source: RepoSource,
     *,
     runner: SubprocessRunner = default_runner,
     log: Callable[[str], None] | None = None,
 ) -> CommandResult:
-    command = ["dnf", "repolist", "--enabled", repo_source.repo_id]
-    return runner.run(command, secrets=[repo_source.password or ""], log=log)
+    with temporary_repo_dir(repo_source) as repo_dir:
+        command = with_reposdir(["dnf", "repolist", "--enabled", repo_source.repo_id], repo_dir)
+        return runner.run(command, secrets=[repo_source.password or ""], log=log)
 
 
 def download_package_with_dependencies(
@@ -92,15 +125,22 @@ def download_package_with_dependencies(
     log: Callable[[str], None] | None = None,
 ) -> CommandResult:
     repo_id = repo_config.repo_id if repo_config else None
-    return runner.run(dnf_download_command(package_name, dest_dir, repo_id), secrets=[repo_config.password if repo_config else ""], log=log)
+    if repo_config:
+        with temporary_repo_dir(repo_config) as repo_dir:
+            command = with_reposdir(dnf_download_command(package_name, dest_dir, repo_id), repo_dir)
+            return runner.run(command, secrets=[repo_config.password or ""], log=log)
+    return runner.run(dnf_download_command(package_name, dest_dir, repo_id), log=log)
 
 
 def sync_full_repo(
-    repo_id: str,
+    repo_id: str | RepoSource,
     dest_dir: Path | str,
     *,
     runner: SubprocessRunner = default_runner,
     log: Callable[[str], None] | None = None,
 ) -> CommandResult:
+    if isinstance(repo_id, RepoSource):
+        with temporary_repo_dir(repo_id) as repo_dir:
+            command = with_reposdir(reposync_command(repo_id.repo_id, dest_dir), repo_dir)
+            return runner.run(command, secrets=[repo_id.password or ""], log=log)
     return runner.run(reposync_command(repo_id, dest_dir), log=log)
-
