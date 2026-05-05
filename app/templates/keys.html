@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% set active_nav = "keys" %}
+{% block title %}GPG Keys - RepoForge{% endblock %}
+{% block eyebrow %}Signing{% endblock %}
+{% block page_title %}GPG Keys{% endblock %}
+{% block actions %}<a class="btn btn-primary" href="/keys/new">Generate Key</a>{% endblock %}
+{% block content %}
+  <section class="panel">
+    <table class="data-table">
+      <thead><tr><th>Name</th><th>Fingerprint</th><th>Scope</th><th>Status</th><th>Created</th><th>Expires</th><th></th></tr></thead>
+      <tbody>
+        {% for key in gpg_keys | default([]) %}
+          <tr>
+            <td>{{ key.name }}</td>
+            <td class="mono">{{ key.fingerprint }}</td>
+            <td>{{ key.scope | default('custom repo') }}</td>
+            <td>{% set status = key.status %}{% include "partials/status_badge.html" %}</td>
+            <td>{{ key.created_at | default('-') }}</td>
+            <td>{{ key.expires_at | default('Never') }}</td>
+            <td class="row-actions"><a href="/keys/{{ key.id }}/public">Public Key</a></td>
+          </tr>
+        {% else %}
+          {% set colspan = 7 %}{% set empty_title = 'No GPG keys' %}{% set empty_message = 'Runtime keys for custom repository metadata and package signing will appear here.' %}{% include "partials/table_empty.html" %}
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+{% endblock %}

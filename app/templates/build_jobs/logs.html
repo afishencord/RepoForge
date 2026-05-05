@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% set active_nav = "build_jobs" %}
+{% block title %}Build Logs - RepoForge{% endblock %}
+{% block eyebrow %}Build Logs{% endblock %}
+{% block page_title %}{{ job.name | default('Build ' ~ job.id) }} Logs{% endblock %}
+{% block actions %}<a class="btn btn-secondary" href="/build-jobs/{{ job.id }}">Summary</a>{% endblock %}
+{% block content %}
+  <section class="panel log-panel" data-refresh-url="{{ refresh_url | default('') }}">
+    <div class="panel-header">
+      <h2>Output</h2>
+      {% set status = job.status %}{% include "partials/status_badge.html" %}
+    </div>
+    <pre class="log-view" id="log-view">{% for line in log_lines | default([]) %}{{ line }}
+{% else %}No log output available.
+{% endfor %}</pre>
+  </section>
+{% endblock %}

@@ -1,0 +1,10 @@
+.git
+.pytest_cache
+__pycache__
+*.pyc
+storage/*
+!storage/.gitkeep
+!storage/uploads/.gitkeep
+!storage/workspaces/.gitkeep
+!storage/artifacts/.gitkeep
+!storage/keys/.gitkeep

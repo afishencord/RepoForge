@@ -1,0 +1,5 @@
+<nav class="tabs" aria-label="{{ tabs_label | default('Sections') }}">
+  {% for tab in tabs %}
+    <a class="tab{% if active_tab == tab.key %} is-active{% endif %}" href="{{ tab.href }}">{{ tab.label }}</a>
+  {% endfor %}
+</nav>

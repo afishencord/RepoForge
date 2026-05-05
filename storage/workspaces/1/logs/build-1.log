@@ -1,0 +1,24 @@
+[2026-05-05T04:14:20Z] Queued build job 1 for bundle Test
+[2026-05-05T04:14:20Z] Starting build job 1
+[2026-05-05T04:14:20Z] $ reposync --repoid=docker-ce --download-metadata --download-path=/mnt/c/Projects/RepoForge/storage/workspaces/1/repos/vendor/docker-ce
+[2026-05-05T04:14:20Z] Error: Unknown repo: 'docker-ce'
+[2026-05-05T04:14:20Z] Build failed: Command failed with exit code 1: reposync --repoid=docker-ce --download-metadata --download-path=/mnt/c/Projects/RepoForge/storage/workspaces/1/repos/vendor/docker-ce
+[2026-05-05T04:14:20Z] Traceback (most recent call last):
+[2026-05-05T04:14:20Z]   File "/mnt/c/Projects/RepoForge/app/main.py", line 715, in execute_build_job
+[2026-05-05T04:14:20Z]     result = BuildOrchestrator(log=log).build(
+[2026-05-05T04:14:20Z]         BuildRequest(
+[2026-05-05T04:14:20Z]     ...<16 lines>...
+[2026-05-05T04:14:20Z]         )
+[2026-05-05T04:14:20Z]     )
+[2026-05-05T04:14:20Z]   File "/mnt/c/Projects/RepoForge/app/services/build_orchestrator.py", line 79, in build
+[2026-05-05T04:14:20Z]     sync_vendor_repo(plan, runner=self.runner, log=self.log)
+[2026-05-05T04:14:20Z]     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[2026-05-05T04:14:20Z]   File "/mnt/c/Projects/RepoForge/app/services/repo_sync_service.py", line 36, in sync_vendor_repo
+[2026-05-05T04:14:20Z]     return [sync_full_repo(plan.repo_source.repo_id, plan.dest_dir, runner=runner, log=log)]
+[2026-05-05T04:14:20Z]             ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[2026-05-05T04:14:20Z]   File "/mnt/c/Projects/RepoForge/app/services/dnf_service.py", line 105, in sync_full_repo
+[2026-05-05T04:14:20Z]     return runner.run(reposync_command(repo_id, dest_dir), log=log)
+[2026-05-05T04:14:20Z]            ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[2026-05-05T04:14:20Z]   File "/mnt/c/Projects/RepoForge/app/services/runner.py", line 146, in run
+[2026-05-05T04:14:20Z]     raise CommandError(result)
+[2026-05-05T04:14:20Z] app.services.runner.CommandError: Command failed with exit code 1: reposync --repoid=docker-ce --download-metadata --download-path=/mnt/c/Projects/RepoForge/storage/workspaces/1/repos/vendor/docker-ce

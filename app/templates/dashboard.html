@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% set active_nav = "dashboard" %}
+{% block title %}Dashboard - RepoForge{% endblock %}
+{% block eyebrow %}Operations{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+{% block actions %}
+  <a class="btn btn-primary" href="/bundles/new">New Bundle</a>
+  <a class="btn btn-secondary" href="/build-jobs">Build Queue</a>
+{% endblock %}
+{% block content %}
+  <section class="hero-panel" aria-label="RepoForge operations">
+    <h2>Signed repository bundles for controlled Linux environments</h2>
+    <p>Track sources, package requests, custom RPMs, signing keys, build logs, and ISO artifacts from one operations console.</p>
+    <div class="hero-actions">
+      <a class="btn btn-primary" href="/bundles/new">New Bundle</a>
+      <a class="btn btn-secondary" href="/system">System Check</a>
+    </div>
+  </section>
+
+  <section class="metric-grid">
+    {% for metric in metrics | default([]) %}
+      <article class="metric">
+        <span>{{ metric.label }}</span>
+        <strong>{{ metric.value }}</strong>
+        <small>{{ metric.detail | default('') }}</small>
+      </article>
+    {% else %}
+      {% for label, value in [('Bundles', 0), ('Active Jobs', 0), ('Artifacts', 0), ('Repo Sources', 0)] %}
+        <article class="metric">
+          <span>{{ label }}</span>
+          <strong>{{ value }}</strong>
+          <small>Awaiting data</small>
+        </article>
+      {% endfor %}
+    {% endfor %}
+  </section>
+
+  <section class="split-grid">
+    <div class="panel">
+      <div class="panel-header">
+        <h2>Recent Build Jobs</h2>
+        <a href="/build-jobs">View all</a>
+      </div>
+      <table class="data-table">
+        <thead><tr><th>Job</th><th>Bundle</th><th>Status</th><th>Started</th></tr></thead>
+        <tbody>
+          {% for job in recent_jobs | default([]) %}
+            <tr>
+              <td><a href="/build-jobs/{{ job.id }}">{{ job.name | default(job.id) }}</a></td>
+              <td>{{ job.bundle_name | default('-') }}</td>
+              <td>{% set status = job.status %}{% include "partials/status_badge.html" %}</td>
+              <td>{{ job.started_at | default('-') }}</td>
+            </tr>
+          {% else %}
+            {% set colspan = 4 %}{% include "partials/table_empty.html" %}
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header">
+        <h2>System Readiness</h2>
+        <a href="/system">Inspect</a>
+      </div>
+      <table class="data-table compact">
+        <thead><tr><th>Tool</th><th>Status</th><th>Version</th></tr></thead>
+        <tbody>
+          {% for tool in tool_checks | default([]) %}
+            <tr>
+              <td>{{ tool.name }}</td>
+              <td>{% set status = tool.status %}{% include "partials/status_badge.html" %}</td>
+              <td>{{ tool.version | default('-') }}</td>
+            </tr>
+          {% else %}
+            {% set colspan = 3 %}{% set empty_title = 'No tool checks yet' %}{% set empty_message = 'Startup validation can populate dnf, rpm, gpg, createrepo_c, and ISO tooling.' %}{% include "partials/table_empty.html" %}
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-header">
+      <h2>Recent ISO Artifacts</h2>
+      <a href="/artifacts">View all</a>
+    </div>
+    <table class="data-table compact">
+      <thead><tr><th>Name</th><th>Bundle</th><th>Size</th><th>Created</th><th></th></tr></thead>
+      <tbody>
+        {% for artifact in recent_artifacts | default([]) %}
+          <tr>
+            <td><a class="primary-link" href="/artifacts/{{ artifact.id }}">{{ artifact.name }}</a></td>
+            <td>{{ artifact.bundle_name }}</td>
+            <td>{{ artifact.size }}</td>
+            <td>{{ artifact.created_at }}</td>
+            <td class="row-actions"><a href="/artifacts/{{ artifact.id }}/download">Download</a></td>
+          </tr>
+        {% else %}
+          {% set colspan = 5 %}{% set empty_title = 'No ISO artifacts' %}{% set empty_message = 'Completed builds will publish downloadable ISO files here.' %}{% include "partials/table_empty.html" %}
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+{% endblock %}

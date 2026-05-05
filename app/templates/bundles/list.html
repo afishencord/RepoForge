@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% set active_nav = "bundles" %}
+{% block title %}Bundles - RepoForge{% endblock %}
+{% block eyebrow %}Package Bundles{% endblock %}
+{% block page_title %}Bundles{% endblock %}
+{% block actions %}<a class="btn btn-primary" href="/bundles/new">New Bundle</a>{% endblock %}
+{% block content %}
+  {% set reset_href = '/bundles' %}
+  {% set search_placeholder = 'Filter by name, OS, architecture' %}
+  {% include "partials/page_toolbar.html" %}
+
+  <section class="panel">
+    <table class="data-table">
+      <thead>
+        <tr><th>Name</th><th>Target</th><th>Architecture</th><th>Status</th><th>Sources</th><th>Last Build</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for bundle in bundles | default([]) %}
+          <tr>
+            <td><a class="primary-link" href="/bundles/{{ bundle.id }}">{{ bundle.name }}</a><small>{{ bundle.description | default('') }}</small></td>
+            <td>{{ bundle.target_os }} {{ bundle.target_os_version }}</td>
+            <td>{{ bundle.architecture }}</td>
+            <td>{% set status = bundle.status %}{% include "partials/status_badge.html" %}</td>
+            <td>{{ bundle.repo_source_count | default(0) }}</td>
+            <td>{{ bundle.last_build_at | default('-') }}</td>
+            <td class="row-actions"><a href="/bundles/{{ bundle.id }}/edit">Edit</a><a href="/bundles/{{ bundle.id }}/build">Build</a></td>
+          </tr>
+        {% else %}
+          {% set colspan = 7 %}{% set empty_title = 'No bundles defined' %}{% set empty_message = 'Create a bundle to select repositories, packages, custom RPMs, and ISO output options.' %}{% include "partials/table_empty.html" %}
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+{% endblock %}

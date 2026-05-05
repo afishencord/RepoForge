@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% set active_nav = "build_jobs" %}
+{% block title %}Build {{ job.id }} - RepoForge{% endblock %}
+{% block eyebrow %}Build Job{% endblock %}
+{% block page_title %}{{ job.name | default('Build ' ~ job.id) }}{% endblock %}
+{% block actions %}
+  <a class="btn btn-secondary" href="/build-jobs/{{ job.id }}/logs">Live Logs</a>
+  {% if job.artifact_id %}<a class="btn btn-primary" href="/artifacts/{{ job.artifact_id }}">Artifact</a>{% endif %}
+{% endblock %}
+{% block content %}
+  <section class="detail-grid">
+    <div class="panel">
+      <div class="panel-header"><h2>Job Summary</h2>{% set status = job.status %}{% include "partials/status_badge.html" %}</div>
+      <dl class="definition-grid">
+        <dt>Bundle</dt><dd>{{ job.bundle_name | default('-') }}</dd>
+        <dt>Stage</dt><dd>{{ job.stage | default('-') }}</dd>
+        <dt>Started</dt><dd>{{ job.started_at | default('-') }}</dd>
+        <dt>Finished</dt><dd>{{ job.finished_at | default('-') }}</dd>
+        <dt>Worker</dt><dd>{{ job.worker | default('-') }}</dd>
+      </dl>
+    </div>
+    <div class="panel">
+      <div class="panel-header"><h2>Stage Progress</h2></div>
+      <ol class="stage-list">
+        {% for stage in stages | default([]) %}
+          <li class="{{ stage.status | default('pending') }}"><span>{{ stage.name }}</span><small>{{ stage.detail | default('') }}</small></li>
+        {% else %}
+          <li class="pending"><span>Waiting for build stages</span><small>No stage data available.</small></li>
+        {% endfor %}
+      </ol>
+    </div>
+  </section>
+{% endblock %}

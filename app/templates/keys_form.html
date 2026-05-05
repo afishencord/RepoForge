@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% from "partials/form_fields.html" import text_input %}
+{% set active_nav = "keys" %}
+{% block title %}Generate GPG Key - RepoForge{% endblock %}
+{% block eyebrow %}Signing{% endblock %}
+{% block page_title %}Generate GPG Key{% endblock %}
+{% block content %}
+  <form class="form-panel" method="post" action="/keys">
+    <section class="form-section">
+      <h2>Key Identity</h2>
+      <div class="form-grid">
+        {{ text_input('name', 'Name', 'RepoForge Custom Repo', required=True) }}
+        {{ text_input('email', 'Email', 'repoforge@local', 'email', required=True) }}
+        {{ text_input('expire_date', 'Expiration', '2y', required=True, help_text='GPG batch format such as 1y, 2y, or 0 for no expiration.') }}
+      </div>
+    </section>
+    <div class="form-actions">
+      <button class="btn btn-primary" type="submit">Generate Key</button>
+      <a class="btn btn-ghost" href="/keys">Cancel</a>
+    </div>
+  </form>
+{% endblock %}
+

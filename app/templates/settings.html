@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% from "partials/form_fields.html" import text_input, select_input, checkbox %}
+{% set active_nav = "settings" %}
+{% block title %}Settings - RepoForge{% endblock %}
+{% block eyebrow %}Administration{% endblock %}
+{% block page_title %}Settings{% endblock %}
+{% block content %}
+  {% set cfg = settings | default({}) %}
+  <form class="form-panel" method="post" action="{{ form_action | default('/settings') }}">
+    <section class="form-section">
+      <h2>Build Defaults</h2>
+      <div class="form-grid">
+        {{ text_input('workspace_root', 'Workspace Root', cfg.workspace_root | default('storage/workspaces')) }}
+        {{ text_input('artifact_root', 'Artifact Root', cfg.artifact_root | default('storage/artifacts')) }}
+        {{ select_input('iso_tool', 'ISO Tool', iso_tool_options | default(['xorriso', 'genisoimage']), cfg.iso_tool | default('xorriso')) }}
+        {{ text_input('max_concurrent_builds', 'Max Concurrent Builds', cfg.max_concurrent_builds | default(1), 'number') }}
+        {{ checkbox('retain_failed_workspaces', 'Retain failed build workspaces', cfg.retain_failed_workspaces | default(True)) }}
+        {{ checkbox('require_signed_metadata', 'Require signed repository metadata', cfg.require_signed_metadata | default(True)) }}
+      </div>
+    </section>
+    <div class="form-actions">
+      <button class="btn btn-primary" type="submit">Save Settings</button>
+    </div>
+  </form>
+{% endblock %}

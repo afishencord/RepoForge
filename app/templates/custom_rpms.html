@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% set active_nav = "custom_rpms" %}
+{% block title %}Custom RPMs - RepoForge{% endblock %}
+{% block eyebrow %}Custom Repository{% endblock %}
+{% block page_title %}Custom RPMs{% endblock %}
+{% block actions %}<a class="btn btn-primary" href="/custom-rpms/upload">Upload RPMs</a>{% endblock %}
+{% block content %}
+  <section class="panel">
+    <div class="panel-header"><h2>Uploaded Packages</h2><span class="muted">{{ rpm_packages | default([]) | length }} packages</span></div>
+    <table class="data-table">
+      <thead><tr><th>Name</th><th>Version</th><th>Release</th><th>Architecture</th><th>Size</th><th>Uploaded</th><th>Dependencies</th><th></th></tr></thead>
+      <tbody>
+        {% for rpm in rpm_packages | default([]) %}
+          <tr>
+            <td>{{ rpm.name }}<small>{{ rpm.original_filename }}</small></td>
+            <td>{{ rpm.version }}</td>
+            <td>{{ rpm.release }}</td>
+            <td>{{ rpm.architecture }}</td>
+            <td>{{ rpm.size | default('-') }}</td>
+            <td>{{ rpm.uploaded_at | default('-') }}</td>
+            <td>{% set status = rpm.dependency_status | default('not checked') %}{% include "partials/status_badge.html" %}</td>
+            <td class="row-actions">
+              <form class="inline-form" method="post" action="/custom-rpms/{{ rpm.id }}/toggle-dependencies">
+                <button type="submit">{{ 'Disable' if rpm.resolve_dependencies else 'Enable' }} resolve</button>
+              </form>
+            </td>
+          </tr>
+        {% else %}
+          {% set colspan = 8 %}{% set empty_title = 'No custom RPMs uploaded' %}{% set empty_message = 'Uploaded RPMs will be placed into the custom repo workspace and indexed with createrepo_c.' %}{% include "partials/table_empty.html" %}
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+{% endblock %}

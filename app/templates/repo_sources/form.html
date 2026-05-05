@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% from "partials/form_fields.html" import text_input, textarea, select_input, checkbox %}
+{% set active_nav = "repo_sources" %}
+{% set is_edit = repo_source is defined and repo_source.id is defined %}
+{% block title %}{{ 'Edit Source' if is_edit else 'New Source' }} - RepoForge{% endblock %}
+{% block eyebrow %}Repository Source{% endblock %}
+{% block page_title %}{{ 'Edit Source' if is_edit else 'New Repository Source' }}{% endblock %}
+{% block content %}
+  <form class="form-panel" method="post" action="{{ form_action | default('/repo-sources/' ~ repo_source.id if is_edit else '/repo-sources') }}">
+    <section class="form-section">
+      <h2>Source Details</h2>
+      <div class="form-grid">
+        {{ text_input('name', 'Name', repo_source.name if is_edit else '', required=True, placeholder='RHEL 9 BaseOS') }}
+        {{ select_input('source_type', 'Type', source_type_options | default(['redhat9', 'fedora44', 'docker_ce', 'docker_ee', 'python', 'generic_yum']), repo_source.source_type if is_edit else 'generic_yum', required=True) }}
+        {{ text_input('base_url', 'Base URL', repo_source.base_url if is_edit else '', placeholder='https://example.repo/os/$basearch') }}
+        {{ text_input('repo_id', 'Repo ID', repo_source.repo_id if is_edit else '', placeholder='rhel-9-baseos-rpms') }}
+        {{ text_input('gpg_key_url', 'GPG Key URL', repo_source.gpg_key_url if is_edit else '', placeholder='https://example.repo/RPM-GPG-KEY') }}
+        {{ select_input('sync_policy', 'Sync Policy', sync_policy_options | default(['manual', 'scheduled', 'disabled']), repo_source.sync_policy if is_edit else 'manual') }}
+        {{ checkbox('enabled', 'Enabled', repo_source.enabled if is_edit else True) }}
+        {{ checkbox('verify_ssl', 'Verify TLS certificates', repo_source.verify_ssl if is_edit else True) }}
+        {{ checkbox('gpgcheck', 'GPG check', repo_source.gpgcheck if is_edit else True) }}
+        {{ checkbox('repo_gpgcheck', 'Repository metadata GPG check', repo_source.repo_gpgcheck if is_edit else False) }}
+        {{ checkbox('requires_auth', 'Requires authentication', repo_source.requires_auth if is_edit else False) }}
+        {{ textarea('notes', 'Notes', repo_source.notes if is_edit else '', 4, 'Credentials, entitlement notes, or mirroring constraints') }}
+      </div>
+    </section>
+    <div class="form-actions">
+      <button class="btn btn-primary" type="submit">Save Source</button>
+      <a class="btn btn-ghost" href="/repo-sources">Cancel</a>
+    </div>
+  </form>
+{% endblock %}

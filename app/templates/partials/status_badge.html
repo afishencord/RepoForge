@@ -1,0 +1,3 @@
+{% set badge_value = status | default(system_status | default('unknown')) %}
+{% set normalized = badge_value | lower | replace(' ', '-') | replace('_', '-') %}
+<span class="status-badge status-{{ normalized }}">{{ badge_value | replace('_', ' ') | title }}</span>

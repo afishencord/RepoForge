@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% set active_nav = "artifacts" %}
+{% block title %}Artifacts - RepoForge{% endblock %}
+{% block eyebrow %}ISO Output{% endblock %}
+{% block page_title %}Artifacts{% endblock %}
+{% block content %}
+  <section class="panel">
+    <table class="data-table">
+      <thead><tr><th>Name</th><th>Bundle</th><th>Type</th><th>Size</th><th>Checksum</th><th>Created</th><th></th></tr></thead>
+      <tbody>
+        {% for artifact in artifacts | default([]) %}
+          <tr>
+            <td><a class="primary-link" href="/artifacts/{{ artifact.id }}">{{ artifact.name }}</a></td>
+            <td>{{ artifact.bundle_name | default('-') }}</td>
+            <td>{{ artifact.artifact_type | default('iso') }}</td>
+            <td>{{ artifact.size | default('-') }}</td>
+            <td class="mono truncate">{{ artifact.checksum | default('-') }}</td>
+            <td>{{ artifact.created_at | default('-') }}</td>
+            <td class="row-actions"><a href="/artifacts/{{ artifact.id }}/download">Download</a><a href="/artifacts/{{ artifact.id }}/manifest">Manifest</a></td>
+          </tr>
+        {% else %}
+          {% set colspan = 7 %}{% set empty_title = 'No artifacts available' %}{% set empty_message = 'Completed builds will publish ISO artifacts, manifests, checksums, and helper scripts.' %}{% include "partials/table_empty.html" %}
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+{% endblock %}

@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% set active_nav = "artifacts" %}
+{% block title %}{{ artifact.name }} - RepoForge{% endblock %}
+{% block eyebrow %}Artifact{% endblock %}
+{% block page_title %}{{ artifact.name }}{% endblock %}
+{% block actions %}
+  <a class="btn btn-primary" href="/artifacts/{{ artifact.id }}/download">Download</a>
+  <a class="btn btn-secondary" href="/artifacts/{{ artifact.id }}/manifest">Manifest</a>
+{% endblock %}
+{% block content %}
+  <section class="detail-grid">
+    <div class="panel">
+      <div class="panel-header"><h2>Artifact Summary</h2></div>
+      <dl class="definition-grid">
+        <dt>Bundle</dt><dd><a href="/bundles/{{ artifact.bundle_id }}">{{ artifact.bundle_name }}</a></dd>
+        <dt>Type</dt><dd>{{ artifact.artifact_type }}</dd>
+        <dt>Size</dt><dd>{{ artifact.size }}</dd>
+        <dt>SHA256</dt><dd class="mono">{{ artifact.checksum }}</dd>
+        <dt>Path</dt><dd class="mono">{{ artifact.path }}</dd>
+        <dt>Created</dt><dd>{{ artifact.created_at }}</dd>
+      </dl>
+    </div>
+    <div class="panel">
+      <div class="panel-header"><h2>Build</h2></div>
+      {% if artifact.build_job %}
+        <dl class="definition-grid">
+          <dt>Job</dt><dd><a href="/build-jobs/{{ artifact.build_job.id }}">{{ artifact.build_job.name }}</a></dd>
+          <dt>Status</dt><dd>{% set status = artifact.build_job.status %}{% include "partials/status_badge.html" %}</dd>
+          <dt>Finished</dt><dd>{{ artifact.build_job.finished_at | default('-') }}</dd>
+        </dl>
+      {% else %}
+        <p class="note">Build job data is not available for this artifact.</p>
+      {% endif %}
+    </div>
+  </section>
+  <section class="panel">
+    <div class="panel-header"><h2>Manifest Preview</h2></div>
+    <pre class="manifest-view">{{ manifest_text | default('No manifest available.') }}</pre>
+  </section>
+{% endblock %}
+

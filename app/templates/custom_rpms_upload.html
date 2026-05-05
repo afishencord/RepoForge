@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% set active_nav = "custom_rpms" %}
+{% block title %}Upload RPM - RepoForge{% endblock %}
+{% block eyebrow %}Custom Repository{% endblock %}
+{% block page_title %}Upload RPM{% endblock %}
+{% block content %}
+  <form class="form-panel" method="post" action="/custom-rpms/upload" enctype="multipart/form-data">
+    <section class="form-section">
+      <h2>RPM Upload</h2>
+      <div class="form-grid">
+        <label class="field">
+          <span>Bundle<em>*</em></span>
+          <select name="bundle_id" required>
+            {% for bundle in bundles | default([]) %}
+              <option value="{{ bundle.id }}">{{ bundle.name }} - {{ bundle.target_os }} {{ bundle.target_os_version }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label class="field">
+          <span>RPM File<em>*</em></span>
+          <input type="file" name="file" accept=".rpm" required>
+        </label>
+        <label class="check-field">
+          <input type="checkbox" name="resolve_dependencies" value="true">
+          <span>Resolve dependencies for uploaded RPM<small>Requires enabled vendor repo sources for the selected bundle.</small></span>
+        </label>
+      </div>
+    </section>
+    <div class="form-actions">
+      <button class="btn btn-primary" type="submit">Upload RPM</button>
+      <a class="btn btn-ghost" href="/custom-rpms">Cancel</a>
+    </div>
+  </form>
+{% endblock %}
+

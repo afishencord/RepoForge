@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% from "partials/form_fields.html" import text_input, textarea, select_input, checkbox %}
+{% set active_nav = "bundles" %}
+{% set is_edit = bundle is defined and bundle.id is defined %}
+{% block title %}{{ 'Edit Bundle' if is_edit else 'New Bundle' }} - RepoForge{% endblock %}
+{% block eyebrow %}Bundle Configuration{% endblock %}
+{% block page_title %}{{ 'Edit Bundle' if is_edit else 'New Bundle' }}{% endblock %}
+{% block content %}
+  {% set tabs = [
+    {'key': 'identity', 'label': 'Identity', 'href': '#identity'},
+    {'key': 'sources', 'label': 'Sources', 'href': '#sources'},
+    {'key': 'packages', 'label': 'Packages', 'href': '#packages'},
+    {'key': 'output', 'label': 'Output', 'href': '#output'}
+  ] %}
+  {% set active_tab = 'identity' %}
+  {% include "partials/tabs.html" %}
+
+  <form class="form-panel" method="post" action="{{ form_action | default('/bundles/' ~ bundle.id if is_edit else '/bundles') }}">
+    <section id="identity" class="form-section">
+      <h2>Identity</h2>
+      <div class="form-grid">
+        {{ text_input('name', 'Name', bundle.name if is_edit else '', required=True, placeholder='RHEL 9 platform baseline') }}
+        {{ select_input('status', 'Status', status_options | default(['draft', 'active', 'archived']), bundle.status if is_edit else 'draft') }}
+        {{ select_input('target_os', 'Target OS', os_options | default(['rhel', 'fedora', 'rocky', 'almalinux']), bundle.target_os if is_edit else 'rhel', required=True) }}
+        {{ text_input('target_os_version', 'OS Version', bundle.target_os_version if is_edit else '', required=True, placeholder='9.4') }}
+        {{ select_input('architecture', 'Architecture', arch_options | default(['x86_64', 'aarch64']), bundle.architecture if is_edit else 'x86_64', required=True) }}
+        {{ select_input('signing_mode', 'Signing Mode', signing_options | default(['metadata', 'packages_and_metadata', 'disabled']), bundle.signing_mode if is_edit else 'metadata') }}
+        {{ textarea('description', 'Description', bundle.description if is_edit else '', 3, 'Purpose, target environment, or change ticket') }}
+      </div>
+    </section>
+
+    <section id="sources" class="form-section">
+      <h2>Repository Sources</h2>
+      <div class="check-list">
+        {% for source in available_repo_sources | default([]) %}
+          <label class="check-row">
+            <input type="checkbox" name="repo_source_ids" value="{{ source.id }}" {% if source.id in selected_repo_source_ids | default([]) %}checked{% endif %}>
+            <span><strong>{{ source.name }}</strong><small>{{ source.source_type }} - {{ source.base_url }}</small></span>
+          </label>
+        {% else %}
+          <p class="muted">No repository sources are available yet.</p>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section id="packages" class="form-section">
+      <h2>Packages and RPMs</h2>
+      <div class="form-grid">
+        {{ textarea('package_include', 'Package Include List', bundle.package_include if is_edit else '', 8, 'One package name per line') }}
+        {{ textarea('package_exclude', 'Package Exclude List', bundle.package_exclude if is_edit else '', 8, 'Optional excludes, one per line') }}
+        {{ checkbox('resolve_dependencies', 'Resolve dependencies', bundle.resolve_dependencies if is_edit else True, 'Use dnf download --resolve for selected vendor packages.') }}
+        {{ checkbox('resolve_custom_rpm_dependencies', 'Resolve dependencies for uploaded RPMs', bundle.resolve_custom_rpm_dependencies if is_edit else False, 'Attempt to fetch missing requirements from enabled vendor repos.') }}
+      </div>
+    </section>
+
+    <section id="output" class="form-section">
+      <h2>ISO Output</h2>
+      <div class="form-grid">
+        {{ text_input('iso_label', 'ISO Label', bundle.iso_label if is_edit else '', placeholder='REPOFORGE_RHEL9') }}
+        {{ text_input('artifact_prefix', 'Artifact Prefix', bundle.artifact_prefix if is_edit else '', placeholder='rhel9-baseline') }}
+        {{ checkbox('include_validation_scripts', 'Include validation scripts', bundle.include_validation_scripts if is_edit else True) }}
+        {{ checkbox('include_install_scripts', 'Include install scripts', bundle.include_install_scripts if is_edit else True) }}
+      </div>
+    </section>
+
+    <div class="form-actions">
+      <button class="btn btn-primary" type="submit">Save Bundle</button>
+      <a class="btn btn-ghost" href="/bundles">Cancel</a>
+    </div>
+  </form>
+{% endblock %}

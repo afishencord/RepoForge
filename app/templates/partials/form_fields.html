@@ -1,0 +1,39 @@
+{% macro text_input(name, label, value='', type='text', required=False, placeholder='', help_text='') -%}
+  <label class="field">
+    <span>{{ label }}{% if required %}<em>*</em>{% endif %}</span>
+    <input type="{{ type }}" name="{{ name }}" value="{{ value | default('', true) }}" placeholder="{{ placeholder }}" {% if required %}required{% endif %}>
+    {% if help_text %}<small>{{ help_text }}</small>{% endif %}
+  </label>
+{%- endmacro %}
+
+{% macro textarea(name, label, value='', rows=4, placeholder='', help_text='') -%}
+  <label class="field field-full">
+    <span>{{ label }}</span>
+    <textarea name="{{ name }}" rows="{{ rows }}" placeholder="{{ placeholder }}">{{ value | default('', true) }}</textarea>
+    {% if help_text %}<small>{{ help_text }}</small>{% endif %}
+  </label>
+{%- endmacro %}
+
+{% macro select_input(name, label, options, selected='', required=False, help_text='') -%}
+  <label class="field">
+    <span>{{ label }}{% if required %}<em>*</em>{% endif %}</span>
+    <select name="{{ name }}" {% if required %}required{% endif %}>
+      {% for option in options %}
+        {% set opt_value = option.value if option.value is defined else option %}
+        {% set opt_label = option.label if option.label is defined else option %}
+        <option value="{{ opt_value }}" {% if opt_value == selected %}selected{% endif %}>{{ opt_label }}</option>
+      {% endfor %}
+    </select>
+    {% if help_text %}<small>{{ help_text }}</small>{% endif %}
+  </label>
+{%- endmacro %}
+
+{% macro checkbox(name, label, checked=False, help_text='') -%}
+  <label class="check-field">
+    <input type="checkbox" name="{{ name }}" value="true" {% if checked %}checked{% endif %}>
+    <span>
+      {{ label }}
+      {% if help_text %}<small>{{ help_text }}</small>{% endif %}
+    </span>
+  </label>
+{%- endmacro %}

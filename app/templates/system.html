@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% set active_nav = "system" %}
+{% block title %}System - RepoForge{% endblock %}
+{% block eyebrow %}Administration{% endblock %}
+{% block page_title %}System{% endblock %}
+{% block content %}
+  <section class="split-grid">
+    <div class="panel">
+      <div class="panel-header"><h2>Builder Tooling</h2></div>
+      <table class="data-table compact">
+        <thead><tr><th>Tool</th><th>Status</th><th>Version</th><th>Path</th></tr></thead>
+        <tbody>
+          {% for tool in tool_checks | default([]) %}
+            <tr><td>{{ tool.name }}</td><td>{% set status = tool.status %}{% include "partials/status_badge.html" %}</td><td>{{ tool.version | default('-') }}</td><td class="mono">{{ tool.path | default('-') }}</td></tr>
+          {% else %}
+            {% set colspan = 4 %}{% include "partials/table_empty.html" %}
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="panel">
+      <div class="panel-header"><h2>Storage</h2></div>
+      <dl class="definition-grid">
+        {% for item in storage_stats | default([]) %}
+          <dt>{{ item.label }}</dt><dd>{{ item.value }}</dd>
+        {% else %}
+          <dt>Uploads</dt><dd>Not reported</dd>
+          <dt>Workspaces</dt><dd>Not reported</dd>
+          <dt>Artifacts</dt><dd>Not reported</dd>
+          <dt>Keys</dt><dd>Not reported</dd>
+        {% endfor %}
+      </dl>
+    </div>
+  </section>
+{% endblock %}

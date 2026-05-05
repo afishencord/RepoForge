@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% set active_nav = "bundles" %}
+{% block title %}Sources - {{ bundle.name }} - RepoForge{% endblock %}
+{% block eyebrow %}Bundle Sources{% endblock %}
+{% block page_title %}{{ bundle.name }} Sources{% endblock %}
+{% block content %}
+  <form class="form-panel" method="post" action="/bundles/{{ bundle.id }}/sources">
+    <section class="form-section">
+      <h2>Repository Sources</h2>
+      <div class="check-list">
+        {% for source in available_repo_sources | default([]) %}
+          <label class="check-row">
+            <input type="checkbox" name="repo_source_ids" value="{{ source.id }}" {% if source.id in selected_repo_source_ids | default([]) %}checked{% endif %}>
+            <span><strong>{{ source.name }}</strong><small>{{ source.source_type }} - {{ source.repo_id }} - {{ source.base_url }}</small></span>
+          </label>
+        {% else %}
+          <p class="muted">No repository sources are available yet.</p>
+        {% endfor %}
+      </div>
+    </section>
+    <div class="form-actions">
+      <button class="btn btn-primary" type="submit">Save Sources</button>
+      <a class="btn btn-ghost" href="/bundles/{{ bundle.id }}?tab=sources">Cancel</a>
+    </div>
+  </form>
+{% endblock %}

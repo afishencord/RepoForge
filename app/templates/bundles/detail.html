@@ -1,0 +1,170 @@
+{% extends "base.html" %}
+{% set active_nav = "bundles" %}
+{% block title %}{{ bundle.name }} - RepoForge{% endblock %}
+{% block eyebrow %}Bundle{% endblock %}
+{% block page_title %}{{ bundle.name }}{% endblock %}
+{% block actions %}
+  <a class="btn btn-primary" href="/bundles/{{ bundle.id }}/build">Run Build</a>
+  <a class="btn btn-secondary" href="/bundles/{{ bundle.id }}/edit">Edit</a>
+{% endblock %}
+{% block content %}
+  {% set tabs = [
+    {'key': 'overview', 'label': 'Overview', 'href': '/bundles/' ~ bundle.id},
+    {'key': 'sources', 'label': 'Sources', 'href': '/bundles/' ~ bundle.id ~ '?tab=sources'},
+    {'key': 'packages', 'label': 'Packages', 'href': '/bundles/' ~ bundle.id ~ '?tab=packages'},
+    {'key': 'custom_rpms', 'label': 'Custom RPMs', 'href': '/bundles/' ~ bundle.id ~ '?tab=custom-rpms'},
+    {'key': 'python', 'label': 'Python Packages', 'href': '/bundles/' ~ bundle.id ~ '?tab=python'},
+    {'key': 'gpg', 'label': 'GPG', 'href': '/bundles/' ~ bundle.id ~ '?tab=gpg'},
+    {'key': 'builds', 'label': 'Builds', 'href': '/bundles/' ~ bundle.id ~ '?tab=builds'},
+    {'key': 'artifacts', 'label': 'Artifacts', 'href': '/bundles/' ~ bundle.id ~ '?tab=artifacts'},
+    {'key': 'manifest', 'label': 'Manifest', 'href': '/bundles/' ~ bundle.id ~ '?tab=manifest'},
+    {'key': 'settings', 'label': 'Settings', 'href': '/bundles/' ~ bundle.id ~ '?tab=settings'}
+  ] %}
+  {% set active_tab = active_tab | default('overview') %}
+  {% include "partials/tabs.html" %}
+
+  <section class="detail-grid">
+    <div class="panel">
+      <div class="panel-header"><h2>Bundle Summary</h2>{% set status = bundle.status %}{% include "partials/status_badge.html" %}</div>
+      <dl class="definition-grid">
+        <dt>Target OS</dt><dd>{{ bundle.target_os }} {{ bundle.target_os_version }}</dd>
+        <dt>Architecture</dt><dd>{{ bundle.architecture }}</dd>
+        <dt>Dependency Resolve</dt><dd>{{ 'Enabled' if bundle.resolve_dependencies else 'Disabled' }}</dd>
+        <dt>Signing</dt><dd>{{ bundle.signing_mode | default('metadata') }}</dd>
+        <dt>Created</dt><dd>{{ bundle.created_at | default('-') }}</dd>
+        <dt>Updated</dt><dd>{{ bundle.updated_at | default('-') }}</dd>
+      </dl>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header"><h2>Latest Build</h2><a href="/build-jobs?bundle_id={{ bundle.id }}">History</a></div>
+      {% if latest_build %}
+        <dl class="definition-grid">
+          <dt>Job</dt><dd><a href="/build-jobs/{{ latest_build.id }}">{{ latest_build.name | default(latest_build.id) }}</a></dd>
+          <dt>Status</dt><dd>{% set status = latest_build.status %}{% include "partials/status_badge.html" %}</dd>
+          <dt>Started</dt><dd>{{ latest_build.started_at | default('-') }}</dd>
+          <dt>Duration</dt><dd>{{ latest_build.duration | default('-') }}</dd>
+        </dl>
+      {% else %}
+        <p class="muted">No build has been run for this bundle.</p>
+      {% endif %}
+    </div>
+  </section>
+
+  {% if active_tab in ['overview', 'sources'] %}
+  <section class="panel">
+    <div class="panel-header"><h2>Selected Repository Sources</h2><a href="/bundles/{{ bundle.id }}/sources">Manage</a></div>
+    <table class="data-table compact">
+      <thead><tr><th>Name</th><th>Type</th><th>Base URL</th><th>Status</th></tr></thead>
+      <tbody>
+        {% for source in repo_sources | default([]) %}
+          <tr><td>{{ source.name }}</td><td>{{ source.source_type }}</td><td class="mono">{{ source.base_url }}</td><td>{% set status = source.status %}{% include "partials/status_badge.html" %}</td></tr>
+        {% else %}
+          {% set colspan = 4 %}{% set empty_title = 'No sources attached' %}{% set empty_message = 'Attach vendor or generic repositories before building an ISO.' %}{% include "partials/table_empty.html" %}
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+  {% endif %}
+
+  {% if active_tab == 'packages' %}
+    <section class="panel">
+      <div class="panel-header"><h2>Package Requests</h2><a href="/bundles/{{ bundle.id }}/edit#packages">Edit</a></div>
+      <table class="data-table compact">
+        <thead><tr><th>Name</th><th>Dependencies</th><th>Preferred Source</th></tr></thead>
+        <tbody>
+          {% for package in package_names | default([]) %}
+            <tr><td class="mono">{{ package }}</td><td>{{ 'Enabled' if bundle.resolve_dependencies else 'Disabled' }}</td><td>Attached repo sources</td></tr>
+          {% else %}
+            {% set colspan = 3 %}{% set empty_title = 'No package requests' %}{% set empty_message = 'Add package names in the bundle editor.' %}{% include "partials/table_empty.html" %}
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+  {% endif %}
+
+  {% if active_tab == 'custom_rpms' %}
+    <section class="panel">
+      <div class="panel-header"><h2>Custom RPMs</h2><a href="/custom-rpms/upload">Upload</a></div>
+      <table class="data-table compact">
+        <thead><tr><th>Name</th><th>Version</th><th>Arch</th><th>Dependency Status</th></tr></thead>
+        <tbody>
+          {% for rpm in rpm_packages | default([]) %}
+            <tr><td>{{ rpm.name }}</td><td>{{ rpm.version }}-{{ rpm.release }}</td><td>{{ rpm.architecture }}</td><td>{% set status = rpm.dependency_status %}{% include "partials/status_badge.html" %}</td></tr>
+          {% else %}
+            {% set colspan = 4 %}{% set empty_title = 'No custom RPMs' %}{% set empty_message = 'Upload RPMs to populate the custom repository.' %}{% include "partials/table_empty.html" %}
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+  {% endif %}
+
+  {% if active_tab == 'builds' %}
+    <section class="panel">
+      <div class="panel-header"><h2>Build History</h2><a href="/build-jobs?bundle_id={{ bundle.id }}">Open queue</a></div>
+      <table class="data-table compact">
+        <thead><tr><th>Job</th><th>Status</th><th>Stage</th><th>Started</th><th>Finished</th></tr></thead>
+        <tbody>
+          {% for job in build_jobs | default([]) %}
+            <tr><td><a href="/build-jobs/{{ job.id }}">{{ job.name }}</a></td><td>{% set status = job.status %}{% include "partials/status_badge.html" %}</td><td>{{ job.stage }}</td><td>{{ job.started_at | default('-') }}</td><td>{{ job.finished_at | default('-') }}</td></tr>
+          {% else %}
+            {% set colspan = 5 %}{% set empty_title = 'No builds' %}{% set empty_message = 'Run a build to generate logs and ISO artifacts.' %}{% include "partials/table_empty.html" %}
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+  {% endif %}
+
+  {% if active_tab == 'artifacts' %}
+    <section class="panel">
+      <div class="panel-header"><h2>Artifacts</h2><a href="/artifacts">All artifacts</a></div>
+      <table class="data-table compact">
+        <thead><tr><th>Name</th><th>Type</th><th>Size</th><th>Created</th><th></th></tr></thead>
+        <tbody>
+          {% for artifact in artifacts | default([]) %}
+            <tr><td><a href="/artifacts/{{ artifact.id }}">{{ artifact.name }}</a></td><td>{{ artifact.artifact_type }}</td><td>{{ artifact.size }}</td><td>{{ artifact.created_at }}</td><td class="row-actions"><a href="/artifacts/{{ artifact.id }}/download">Download</a></td></tr>
+          {% else %}
+            {% set colspan = 5 %}{% set empty_title = 'No artifacts' %}{% set empty_message = 'Completed builds will attach artifacts to this bundle.' %}{% include "partials/table_empty.html" %}
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+  {% endif %}
+
+  {% if active_tab == 'manifest' %}
+    <section class="panel">
+      <div class="panel-header"><h2>Manifest</h2>{% if artifacts | default([]) | length %}<a href="/artifacts/{{ artifacts[0].id }}/manifest">Download</a>{% endif %}</div>
+      <pre class="manifest-view">{{ manifest_text | default('No manifest generated yet.') }}</pre>
+    </section>
+  {% endif %}
+
+  {% if active_tab == 'python' %}
+    <section class="panel">
+      <div class="panel-header"><h2>Python Package Mirror</h2></div>
+      <p class="note">Python package mirroring is represented as a repository source with type <span class="mono">python</span>. Build output stores Python packages under <span class="mono">repos/python</span>.</p>
+    </section>
+  {% endif %}
+
+  {% if active_tab == 'gpg' %}
+    <section class="panel">
+      <div class="panel-header"><h2>Signing</h2><a href="/keys">Manage keys</a></div>
+      <dl class="definition-grid">
+        <dt>Signing mode</dt><dd>{{ bundle.signing_mode }}</dd>
+        <dt>Custom repo dependency resolve</dt><dd>{{ 'Enabled' if bundle.resolve_custom_rpm_dependencies else 'Disabled' }}</dd>
+        <dt>Private keys in ISO</dt><dd>Never included</dd>
+      </dl>
+    </section>
+  {% endif %}
+
+  {% if active_tab == 'settings' %}
+    <section class="panel">
+      <div class="panel-header"><h2>Bundle Settings</h2><a href="/bundles/{{ bundle.id }}/edit">Edit</a></div>
+      <dl class="definition-grid">
+        <dt>ISO label</dt><dd>{{ bundle.iso_label }}</dd>
+        <dt>Artifact prefix</dt><dd>{{ bundle.artifact_prefix | default('-') }}</dd>
+        <dt>Install scripts</dt><dd>{{ 'Included' if bundle.include_install_scripts else 'Excluded' }}</dd>
+        <dt>Validation scripts</dt><dd>{{ 'Included' if bundle.include_validation_scripts else 'Excluded' }}</dd>
+      </dl>
+    </section>
+  {% endif %}
+{% endblock %}

@@ -1,0 +1,14 @@
+services:
+  repoforge:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      REPOFORGE_DATABASE_URL: sqlite:////app/storage/repoforge.db
+      REPOFORGE_STORAGE_ROOT: /app/storage
+      REPOFORGE_UPLOAD_ROOT: /app/storage/uploads
+      REPOFORGE_WORKSPACE_ROOT: /app/storage/workspaces
+      REPOFORGE_ARTIFACT_ROOT: /app/storage/artifacts
+      REPOFORGE_KEY_ROOT: /app/storage/keys
+    volumes:
+      - ./storage:/app/storage
