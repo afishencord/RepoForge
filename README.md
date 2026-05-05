@@ -92,7 +92,7 @@ The System page reports whether required tooling is available. Configuration pag
 8. Download the generated ISO artifact and manifest.
 9. Mount the ISO on the disconnected host and run the included helper scripts.
 
-## Docker CE Repository Notes
+## Repository Sync Notes
 
 Use an explicit RHEL path when running inside the builder container. For example:
 
