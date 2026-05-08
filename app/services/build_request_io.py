@@ -26,6 +26,7 @@ def build_request_to_dict(request: BuildRequest) -> dict[str, Any]:
         "packages": request.packages,
         "uploaded_rpms": request.uploaded_rpms,
         "gpg_fingerprint": request.gpg_fingerprint,
+        "gpg_private_key_path": str(request.gpg_private_key_path) if request.gpg_private_key_path else None,
         "fail_on_missing_tools": request.fail_on_missing_tools,
         "fail_on_unresolved_dependencies": request.fail_on_unresolved_dependencies,
         "iso_label": request.iso_label,
@@ -50,6 +51,7 @@ def build_request_from_dict(data: dict[str, Any]) -> BuildRequest:
         packages=list(data.get("packages") or []),
         uploaded_rpms=list(data.get("uploaded_rpms") or []),
         gpg_fingerprint=_optional_str(data.get("gpg_fingerprint")),
+        gpg_private_key_path=_optional_path(data.get("gpg_private_key_path")),
         fail_on_missing_tools=bool(data.get("fail_on_missing_tools", True)),
         fail_on_unresolved_dependencies=bool(data.get("fail_on_unresolved_dependencies", False)),
         iso_label=str(data.get("iso_label") or "REPOFORGE"),
@@ -97,6 +99,7 @@ def with_remote_paths(request: BuildRequest, *, remote_workspace: str, remote_ar
         packages=request.packages,
         uploaded_rpms=uploaded_rpms,
         gpg_fingerprint=request.gpg_fingerprint,
+        gpg_private_key_path=request.gpg_private_key_path,
         fail_on_missing_tools=request.fail_on_missing_tools,
         fail_on_unresolved_dependencies=request.fail_on_unresolved_dependencies,
         iso_label=request.iso_label,
@@ -149,3 +152,7 @@ def _repo_sync_plan_from_dict(data: dict[str, Any]) -> RepoSyncPlan:
 
 def _optional_str(value: Any) -> str | None:
     return str(value) if value not in (None, "") else None
+
+
+def _optional_path(value: Any) -> Path | None:
+    return Path(str(value)) if value not in (None, "") else None

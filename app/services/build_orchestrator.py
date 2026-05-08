@@ -35,6 +35,7 @@ class BuildRequest:
     packages: list[dict[str, Any] | str] = field(default_factory=list)
     uploaded_rpms: list[dict[str, Any]] = field(default_factory=list)
     gpg_fingerprint: str | None = None
+    gpg_private_key_path: Path | None = None
     fail_on_missing_tools: bool = True
     fail_on_unresolved_dependencies: bool = False
     iso_label: str = "REPOFORGE"
@@ -116,12 +117,25 @@ class BuildOrchestrator:
 
         public_key_path = None
         if request.gpg_fingerprint:
+            gpg_home = request.gpg_private_key_path
             public_key_path = workspace / "keys" / "public" / "RPM-GPG-KEY-repoforge-custom"
             public_key_path.parent.mkdir(parents=True, exist_ok=True)
-            export_public_key(request.gpg_fingerprint, public_key_path, runner=self.runner, log=self.log)
+            export_public_key(
+                request.gpg_fingerprint,
+                public_key_path,
+                gpg_home=gpg_home,
+                runner=self.runner,
+                log=self.log,
+            )
             repomd = custom_repo_dir / "repodata" / "repomd.xml"
             if repomd.exists():
-                sign_file_detached(repomd, local_user=request.gpg_fingerprint, runner=self.runner, log=self.log)
+                sign_file_detached(
+                    repomd,
+                    gpg_home=gpg_home,
+                    local_user=request.gpg_fingerprint,
+                    runner=self.runner,
+                    log=self.log,
+                )
 
         manifest = BundleManifest(
             bundle_name=request.bundle_name,

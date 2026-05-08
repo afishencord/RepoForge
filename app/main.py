@@ -762,6 +762,7 @@ def execute_build_job(job_id: int) -> None:
             for source in repo_sources
         ]
         latest_key = db.scalars(select(GPGKey).where(GPGKey.status == "active").order_by(GPGKey.created_at.desc()).limit(1)).first()
+        signing_key = latest_key if latest_key and bundle.signing_mode != "disabled" else None
         uploaded_rpms = [uploaded_rpm_manifest(rpm, bundle) for rpm in bundle.uploaded_rpms]
         job.stage = "building"
         db.commit()
@@ -781,7 +782,8 @@ def execute_build_job(job_id: int) -> None:
             repo_sources=[repo_source_manifest(source) for source in repo_sources],
             packages=packages,
             uploaded_rpms=uploaded_rpms,
-            gpg_fingerprint=latest_key.fingerprint if latest_key and bundle.signing_mode != "disabled" else None,
+            gpg_fingerprint=signing_key.fingerprint if signing_key else None,
+            gpg_private_key_path=Path(signing_key.private_key_path) if signing_key else None,
             fail_on_missing_tools=settings.require_system_tools_for_build,
             fail_on_unresolved_dependencies=bundle.fail_on_unresolved_dependencies,
             iso_label=bundle.iso_label or "REPOFORGE",

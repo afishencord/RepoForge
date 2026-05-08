@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+import shutil
+import tempfile
 from typing import Callable
 
 from .runner import CommandResult, SubprocessRunner, default_runner
@@ -49,6 +52,71 @@ def gpg_base_command(gpg_home: Path | str | None = None) -> list[str]:
     return command
 
 
+def _is_gpg_runtime_entry(path: Path) -> bool:
+    name = path.name
+    return name.startswith("S.") or name.endswith(".lock")
+
+
+def _ignore_gpg_runtime_entries(directory: str, names: list[str]) -> set[str]:
+    return {name for name in names if _is_gpg_runtime_entry(Path(directory) / name)}
+
+
+def _copy_gpg_home(source: Path, destination: Path) -> None:
+    if not source.exists():
+        return
+    for item in source.iterdir():
+        if _is_gpg_runtime_entry(item):
+            continue
+        target = destination / item.name
+        if item.is_dir():
+            shutil.copytree(item, target, ignore=_ignore_gpg_runtime_entries, dirs_exist_ok=True)
+        elif item.is_file():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(item, target)
+
+
+@contextmanager
+def _runtime_gpg_home(persistent_home: Path):
+    persistent_home.mkdir(parents=True, exist_ok=True)
+    persistent_home.chmod(0o700)
+    with tempfile.TemporaryDirectory(prefix="repoforge-gnupg-") as temp_root:
+        runtime_home = Path(temp_root) / "gnupg"
+        runtime_home.mkdir(mode=0o700)
+        _copy_gpg_home(persistent_home, runtime_home)
+        try:
+            yield runtime_home
+        finally:
+            runtime_home.chmod(0o700)
+
+
+def _run_gpg(
+    command_args: list[str],
+    *,
+    gpg_home: Path | str | None = None,
+    persist_home: bool = False,
+    runner: SubprocessRunner = default_runner,
+    log: Callable[[str], None] | None = None,
+    secrets: list[str] | None = None,
+    check: bool = True,
+) -> CommandResult:
+    if not gpg_home:
+        return runner.run(gpg_base_command() + command_args, log=log, secrets=secrets or [], check=check)
+
+    persistent_home = Path(gpg_home)
+    with _runtime_gpg_home(persistent_home) as runtime_home:
+        result: CommandResult | None = None
+        try:
+            result = runner.run(gpg_base_command(runtime_home) + command_args, log=log, secrets=secrets or [], check=check)
+            return result
+        finally:
+            try:
+                runner.run(["gpgconf", "--homedir", str(runtime_home), "--kill", "gpg-agent"], check=False)
+            except Exception:
+                pass
+            if persist_home and result is not None and result.ok:
+                _copy_gpg_home(runtime_home, persistent_home)
+
+
 def generate_key(
     params_file: Path | str,
     *,
@@ -57,8 +125,14 @@ def generate_key(
     log: Callable[[str], None] | None = None,
     secrets: list[str] | None = None,
 ) -> CommandResult:
-    command = gpg_base_command(gpg_home) + ["--generate-key", str(params_file)]
-    return runner.run(command, log=log, secrets=secrets or [])
+    return _run_gpg(
+        ["--generate-key", str(params_file)],
+        gpg_home=gpg_home,
+        persist_home=True,
+        runner=runner,
+        log=log,
+        secrets=secrets,
+    )
 
 
 def export_public_key(
@@ -69,8 +143,12 @@ def export_public_key(
     runner: SubprocessRunner = default_runner,
     log: Callable[[str], None] | None = None,
 ) -> CommandResult:
-    command = gpg_base_command(gpg_home) + ["--armor", "--output", str(output_path), "--export", fingerprint]
-    return runner.run(command, log=log)
+    return _run_gpg(
+        ["--armor", "--output", str(output_path), "--export", fingerprint],
+        gpg_home=gpg_home,
+        runner=runner,
+        log=log,
+    )
 
 
 def sign_file_detached(
@@ -81,11 +159,11 @@ def sign_file_detached(
     runner: SubprocessRunner = default_runner,
     log: Callable[[str], None] | None = None,
 ) -> CommandResult:
-    command = gpg_base_command(gpg_home)
+    command = []
     if local_user:
         command.extend(["--local-user", local_user])
     command.extend(["--detach-sign", "--armor", str(file_path)])
-    return runner.run(command, log=log)
+    return _run_gpg(command, gpg_home=gpg_home, runner=runner, log=log)
 
 
 def list_secret_fingerprints(
@@ -94,8 +172,13 @@ def list_secret_fingerprints(
     runner: SubprocessRunner = default_runner,
     log: Callable[[str], None] | None = None,
 ) -> list[str]:
-    command = gpg_base_command(gpg_home) + ["--with-colons", "--list-secret-keys"]
-    result = runner.run(command, log=log, check=False)
+    result = _run_gpg(
+        ["--with-colons", "--list-secret-keys"],
+        gpg_home=gpg_home,
+        runner=runner,
+        log=log,
+        check=False,
+    )
     fingerprints: list[str] = []
     for line in result.stdout.splitlines():
         parts = line.split(":")

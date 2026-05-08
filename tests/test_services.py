@@ -19,10 +19,10 @@ from app.services.build_orchestrator import BuildRequest
 from app.services.build_request_io import build_request_from_dict, build_request_to_dict, with_remote_paths
 from app.services.dependency_service import filter_rpm_requirements
 from app.services.dnf_service import RepoSource, create_repo_file_content, dnf_download_command, reposync_command, temporary_repo_dir, with_reposdir
-from app.services.gpg_service import GpgKeyRequest, key_params_content
+from app.services.gpg_service import GpgKeyRequest, export_public_key, generate_key, key_params_content
 from app.services.iso_service import copy_into_iso_root, xorriso_command
 from app.services.manifest_service import BundleManifest, write_manifest, write_package_list
-from app.services.runner import SubprocessRunner, mask_args, require_relative_path
+from app.services.runner import CommandResult, SubprocessRunner, mask_args, require_relative_path
 
 
 class RecordingRunner:
@@ -35,6 +35,25 @@ class RecordingRunner:
         from app.services.runner import CommandResult
 
         return CommandResult(args=tuple(args), returncode=0, stdout=stdout)
+
+
+class GpgHomeRecordingRunner:
+    def __init__(self) -> None:
+        self.commands: list[list[str]] = []
+
+    def run(self, args, **kwargs):  # type: ignore[no-untyped-def]
+        command = list(args)
+        self.commands.append(command)
+        if command[:2] == ["gpg", "--batch"] and "--homedir" in command:
+            home = Path(command[command.index("--homedir") + 1])
+            if "--generate-key" in command:
+                home.joinpath("private-keys-v1.d").mkdir(parents=True, exist_ok=True)
+                home.joinpath("private-keys-v1.d", "secret.key").write_text("secret", encoding="utf-8")
+                home.joinpath("pubring.kbx").write_text("keyring", encoding="utf-8")
+                home.joinpath("S.gpg-agent").write_text("runtime", encoding="utf-8")
+            if "--export" in command:
+                assert home.joinpath("pubring.kbx").exists()
+        return CommandResult(args=tuple(args), returncode=0)
 
 
 def test_require_relative_path_blocks_escape(tmp_path: Path) -> None:
@@ -58,6 +77,13 @@ def test_runner_rejects_shell_string() -> None:
 
     with pytest.raises(ValueError):
         runner.run("echo unsafe")  # type: ignore[arg-type]
+
+
+def test_command_summary_includes_stderr_tail() -> None:
+    result = CommandResult(args=("gpg", "--generate-key", "keyparams"), returncode=2, stderr="gpg: key generation failed")
+
+    assert "Command failed with exit code 2: gpg --generate-key keyparams" in result.summary
+    assert "gpg: key generation failed" in result.summary
 
 
 def test_builder_mode_normalization_defaults_unknown_values() -> None:
@@ -120,6 +146,8 @@ def test_build_request_serialization_round_trips_remote_paths(tmp_path: Path) ->
         worker="rhel-worker",
         repo_sync_plans=[],
         uploaded_rpms=[{"storage_path": str(rpm), "original_filename": "custom.rpm"}],
+        gpg_fingerprint="ABC123",
+        gpg_private_key_path=tmp_path / "keys" / "gnupg",
     )
 
     remote = with_remote_paths(
@@ -134,6 +162,8 @@ def test_build_request_serialization_round_trips_remote_paths(tmp_path: Path) ->
     assert restored.builder_mode == "remote-rhel-worker"
     assert restored.worker == "rhel-worker"
     assert restored.uploaded_rpms[0]["storage_path"] == "/var/lib/repoforge-worker/42/input/uploads/custom.rpm"
+    assert restored.gpg_fingerprint == "ABC123"
+    assert restored.gpg_private_key_path == tmp_path / "keys" / "gnupg"
 
 
 def test_checksum_generation_and_sha256sums_are_stable(tmp_path: Path) -> None:
@@ -236,6 +266,37 @@ def test_gpg_key_params_content_no_protection_for_mvp() -> None:
     assert "Name-Real: RepoForge" in content
     assert "%no-protection" in content
     assert content.endswith("%commit\n")
+
+
+def test_gpg_generation_uses_runtime_home_and_persists_key_files(tmp_path: Path) -> None:
+    persistent_home = tmp_path / "persisted-gnupg"
+    params_path = tmp_path / "keyparams"
+    params_path.write_text(key_params_content(GpgKeyRequest()), encoding="utf-8")
+    runner = GpgHomeRecordingRunner()
+
+    generate_key(params_path, gpg_home=persistent_home, runner=runner)
+
+    gpg_command = runner.commands[0]
+    runtime_home = Path(gpg_command[gpg_command.index("--homedir") + 1])
+    assert runtime_home != persistent_home
+    assert (persistent_home / "pubring.kbx").read_text(encoding="utf-8") == "keyring"
+    assert (persistent_home / "private-keys-v1.d" / "secret.key").read_text(encoding="utf-8") == "secret"
+    assert not (persistent_home / "S.gpg-agent").exists()
+    assert runner.commands[-1][0] == "gpgconf"
+
+
+def test_gpg_export_copies_persisted_home_to_runtime(tmp_path: Path) -> None:
+    persistent_home = tmp_path / "persisted-gnupg"
+    persistent_home.mkdir()
+    (persistent_home / "pubring.kbx").write_text("keyring", encoding="utf-8")
+    runner = GpgHomeRecordingRunner()
+
+    export_public_key("ABC123", tmp_path / "RPM-GPG-KEY-repoforge-custom", gpg_home=persistent_home, runner=runner)
+
+    gpg_command = runner.commands[0]
+    runtime_home = Path(gpg_command[gpg_command.index("--homedir") + 1])
+    assert runtime_home != persistent_home
+    assert "--export" in gpg_command
 
 
 def test_xorriso_command_and_iso_copy_path_safety(tmp_path: Path) -> None:

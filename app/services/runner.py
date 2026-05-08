@@ -11,6 +11,7 @@ from typing import Callable, Iterable, Mapping, Sequence
 
 DEFAULT_TIMEOUT_SECONDS = 3600
 DEFAULT_SECRET_TOKENS = ("password", "passwd", "token", "secret", "apikey", "api_key")
+MAX_ERROR_DIAGNOSTIC_CHARS = 1000
 
 
 class CommandError(RuntimeError):
@@ -39,7 +40,12 @@ class CommandResult:
         command = " ".join(self.masked_args or self.args)
         if self.timed_out:
             return f"Command timed out: {command}"
-        return f"Command failed with exit code {self.returncode}: {command}"
+        summary = f"Command failed with exit code {self.returncode}: {command}"
+        diagnostic = (self.stderr or self.stdout).strip()
+        if diagnostic:
+            diagnostic_tail = diagnostic[-MAX_ERROR_DIAGNOSTIC_CHARS:]
+            return f"{summary}\n{diagnostic_tail}"
+        return summary
 
 
 def mask_value(value: object, secrets: Iterable[str] = ()) -> str:
@@ -148,4 +154,3 @@ class SubprocessRunner:
 
 
 default_runner = SubprocessRunner()
-
