@@ -1,4 +1,47 @@
 (function () {
+  var themeStorageKey = "repoforge-theme";
+
+  function systemTheme() {
+    return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  }
+
+  function currentTheme() {
+    try {
+      return localStorage.getItem(themeStorageKey) || systemTheme();
+    } catch (error) {
+      return systemTheme();
+    }
+  }
+
+  function applyTheme(theme) {
+    document.documentElement.setAttribute("data-theme", theme);
+    document.querySelectorAll("[data-theme-toggle]").forEach(function (button) {
+      button.setAttribute("aria-pressed", theme === "dark" ? "true" : "false");
+    });
+  }
+
+  function bindThemeToggle() {
+    applyTheme(currentTheme());
+    document.querySelectorAll("[data-theme-toggle]").forEach(function (button) {
+      button.addEventListener("click", function () {
+        var next = document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark";
+        try {
+          localStorage.setItem(themeStorageKey, next);
+        } catch (error) {}
+        applyTheme(next);
+      });
+    });
+    if (window.matchMedia) {
+      var media = window.matchMedia("(prefers-color-scheme: dark)");
+      media.addEventListener("change", function () {
+        try {
+          if (localStorage.getItem(themeStorageKey)) return;
+        } catch (error) {}
+        applyTheme(systemTheme());
+      });
+    }
+  }
+
   function activateHashTab() {
     var hash = window.location.hash;
     if (!hash) return;
@@ -30,6 +73,7 @@
 
   window.addEventListener("hashchange", activateHashTab);
   document.addEventListener("DOMContentLoaded", function () {
+    bindThemeToggle();
     activateHashTab();
     refreshLogs();
   });

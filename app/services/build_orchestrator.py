@@ -27,6 +27,9 @@ class BuildRequest:
     architecture: str
     workspace_dir: Path
     artifact_dir: Path
+    job_id: str | None = None
+    builder_mode: str = "container"
+    worker: str = ""
     repo_sync_plans: list[RepoSyncPlan] = field(default_factory=list)
     repo_sources: list[dict[str, Any]] = field(default_factory=list)
     packages: list[dict[str, Any] | str] = field(default_factory=list)
@@ -124,6 +127,8 @@ class BuildOrchestrator:
             bundle_name=request.bundle_name,
             target_os=request.target_os,
             architecture=request.architecture,
+            builder_mode=request.builder_mode,
+            worker=request.worker,
             repo_sources=request.repo_sources,
             packages=request.packages,
             uploaded_rpms=request.uploaded_rpms,

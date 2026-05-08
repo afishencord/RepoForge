@@ -50,6 +50,7 @@ class Bundle(TimestampMixin, Base):
     artifact_prefix: Mapped[str] = mapped_column(String(128), default="", nullable=False)
     include_validation_scripts: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     include_install_scripts: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    builder_mode: Mapped[str] = mapped_column(String(40), default="container", nullable=False)
     last_built_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     iso_artifact_path: Mapped[str | None] = mapped_column(Text)
     manifest_path: Mapped[str | None] = mapped_column(Text)
@@ -185,6 +186,8 @@ class BuildJob(Base):
     log_path: Mapped[str] = mapped_column(Text, default="", nullable=False)
     error_message: Mapped[str] = mapped_column(Text, default="", nullable=False)
     created_by: Mapped[str] = mapped_column(String(120), default="local", nullable=False)
+    builder_mode: Mapped[str] = mapped_column(String(40), default="container", nullable=False)
+    worker: Mapped[str] = mapped_column(String(160), default="", nullable=False)
     warnings_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
 
     bundle: Mapped[Bundle] = relationship(back_populates="build_jobs")

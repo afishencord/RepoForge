@@ -11,6 +11,8 @@ The application is built with FastAPI, SQLAlchemy, SQLite, Jinja2 templates, and
 - UI-defined repository support using generated temporary `.repo` files during DNF and `reposync` operations
 - Custom RPM upload workflow with safe filename handling, upload size enforcement, RPM metadata extraction, dependency visibility, and per-RPM dependency resolution toggles
 - Build job tracking with status, stage, live logs, errors, warnings, and artifact links
+- Builder mode selection for container, local RHEL, remote RHEL worker, and external mirror execution
+- Red Hat entitlement validation before Red Hat CDN builds are queued
 - Runtime GPG key generation, public key export, and custom repository metadata signing
 - Repository metadata generation with `createrepo_c`
 - Manifest, package list, checksum, install script, validation script, repo file, README, and ISO-root generation
@@ -79,6 +81,19 @@ pip
 ```
 
 The System page reports whether required tooling is available. Configuration pages remain usable even when a host is missing tools, but builds require the builder toolchain.
+
+## Builder Deployment Modes
+
+RepoForge defaults to `container` mode for Compose-based builds against public and generic Yum/DNF repositories. Red Hat CDN repositories require valid entitlement in the selected builder environment.
+
+Available modes:
+
+- `container`: run repository sync and ISO assembly inside the application container.
+- `local-rhel`: run RepoForge directly on an entitled RHEL host and validate `subscription-manager` plus enabled repo IDs before queuing.
+- `remote-rhel-worker`: dispatch a serialized build request to an entitled RHEL host over key-based SSH/SFTP, run `python3 -m app.workers.remote_build`, and copy artifacts back.
+- `external-mirror`: consume an already mirrored enterprise repository from Satellite, Pulp, Katello, Nexus, Artifactory, or another internal mirror endpoint.
+
+Remote workers must have Python, RepoForge code, builder tooling, SSH key access, and any required Red Hat entitlement configured ahead of time. Configure the worker host, username, key path, remote work root, and RepoForge app path from Settings.
 
 ## Typical Workflow
 

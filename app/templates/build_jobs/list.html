@@ -9,7 +9,7 @@
   {% include "partials/page_toolbar.html" %}
   <section class="panel">
     <table class="data-table">
-      <thead><tr><th>Job</th><th>Bundle</th><th>Status</th><th>Stage</th><th>Started</th><th>Finished</th><th></th></tr></thead>
+      <thead><tr><th>Job</th><th>Bundle</th><th>Status</th><th>Stage</th><th>Builder</th><th>Started</th><th>Finished</th><th></th></tr></thead>
       <tbody>
         {% for job in build_jobs | default([]) %}
           <tr>
@@ -17,12 +17,13 @@
             <td>{{ job.bundle_name | default('-') }}</td>
             <td>{% set status = job.status %}{% include "partials/status_badge.html" %}</td>
             <td>{{ job.stage | default('-') }}</td>
+            <td>{{ job.builder_mode | default('container') }}</td>
             <td>{{ job.started_at | default('-') }}</td>
             <td>{{ job.finished_at | default('-') }}</td>
             <td class="row-actions"><a href="/build-jobs/{{ job.id }}/logs">Logs</a></td>
           </tr>
         {% else %}
-          {% set colspan = 7 %}{% set empty_title = 'No build jobs' %}{% set empty_message = 'Bundle builds will appear here with status, stage, and log access.' %}{% include "partials/table_empty.html" %}
+          {% set colspan = 8 %}{% set empty_title = 'No build jobs' %}{% set empty_message = 'Bundle builds will appear here with status, stage, and log access.' %}{% include "partials/table_empty.html" %}
         {% endfor %}
       </tbody>
     </table>

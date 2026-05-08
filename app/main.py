@@ -32,12 +32,21 @@ from app.models import (
     parse_lines,
     utc_now,
 )
+from app.services.builder_deployment import (
+    RHEL_CDN_NOTICE,
+    BuilderValidationError,
+    builder_mode_options,
+    normalize_builder_mode,
+    validate_builder_mode_for_sources,
+    worker_config_from_settings,
+)
 from app.services.build_orchestrator import BuildOrchestrator, BuildRequest
 from app.services.checksum_service import sha256_file
 from app.services.dnf_service import RepoSource as DnfRepoSource
 from app.services.dnf_service import validate_repo_source
 from app.services.gpg_service import GpgKeyRequest, export_public_key, generate_key, list_secret_fingerprints, write_key_params
 from app.services.repo_sync_service import RepoSyncPlan
+from app.services.remote_worker_service import RemoteWorkerClient
 from app.services.rpm_service import inspect_rpm
 from app.services.runner import CommandError, SubprocessRunner
 from app.services.system_tools import REQUIRED_TOOLS, check_system_tools
@@ -186,6 +195,7 @@ def bundle_detail(request: Request, bundle_id: int, tab: str | None = None, db: 
             "package_names": bundle.package_names,
             "manifest_text": manifest_text or "No manifest generated yet.",
             "active_tab": normalize_tab(tab),
+            "rhel_cdn_notice": RHEL_CDN_NOTICE,
         },
     )
 
@@ -224,7 +234,25 @@ async def update_bundle_sources(request: Request, bundle_id: int, db: Session = 
 @app.get("/bundles/{bundle_id}/build")
 def start_bundle_build(bundle_id: int, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     bundle = get_or_404(db, Bundle, bundle_id)
-    job = BuildJob(bundle_id=bundle.id, name=f"{safe_slug(bundle.name)}-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}")
+    builder_mode = normalize_builder_mode(bundle.builder_mode)
+    worker_config = worker_config_from_settings(settings_map(db))
+    try:
+        validate_builder_mode_for_sources(
+            builder_mode,
+            bundle.repo_sources,
+            worker_config=worker_config,
+            runner=SubprocessRunner(default_timeout=60),
+            remote_entitlement_check=remote_entitlement_check,
+        )
+    except BuilderValidationError as exc:
+        return redirect(f"/bundles/{bundle.id}", notice=str(exc), level="error")
+
+    job = BuildJob(
+        bundle_id=bundle.id,
+        name=f"{safe_slug(bundle.name)}-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}",
+        builder_mode=builder_mode,
+        worker=worker_config.display_name if builder_mode == "remote-rhel-worker" else builder_mode,
+    )
     db.add(job)
     db.commit()
     db.refresh(job)
@@ -518,6 +546,13 @@ async def update_settings(request: Request, db: Session = Depends(get_db)):
         "max_concurrent_builds",
         "retain_failed_workspaces",
         "require_signed_metadata",
+        "remote_worker_name",
+        "remote_worker_host",
+        "remote_worker_username",
+        "remote_worker_port",
+        "remote_worker_key_path",
+        "remote_worker_root",
+        "remote_worker_app_path",
     ):
         value = "true" if key in form and key.startswith(("retain_", "require_")) else str(form.get(key) or "")
         setting = db.get(Setting, key) or Setting(key=key)
@@ -536,6 +571,8 @@ def bundle_form_context(db: Session, bundle: Bundle | None = None) -> dict[str, 
         "os_options": ["rhel", "fedora", "rocky", "almalinux", "centos-stream"],
         "arch_options": ["x86_64", "aarch64", "ppc64le", "s390x"],
         "signing_options": ["metadata", "packages_and_metadata", "disabled"],
+        "builder_mode_options": builder_mode_options(),
+        "rhel_cdn_notice": RHEL_CDN_NOTICE,
     }
     if bundle:
         context["bundle"] = bundle
@@ -570,6 +607,7 @@ def apply_bundle_form(bundle: Bundle, form: Any, db: Session) -> None:
     bundle.artifact_prefix = str(form.get("artifact_prefix") or "")
     bundle.include_validation_scripts = "include_validation_scripts" in form
     bundle.include_install_scripts = "include_install_scripts" in form
+    bundle.builder_mode = normalize_builder_mode(str(form.get("builder_mode") or "container"))
     ids = [int(value) for value in form.getlist("repo_source_ids") if str(value).isdigit()]
     bundle.repo_sources = list(db.scalars(select(RepoSource).where(RepoSource.id.in_(ids))).all()) if ids else []
 
@@ -607,6 +645,15 @@ def get_or_404(db: Session, model: type[Any], item_id: int) -> Any:
     if item is None:
         raise HTTPException(status_code=404, detail=f"{model.__name__} not found")
     return item
+
+
+def remote_entitlement_check(worker_config: Any, repo_ids: list[str]) -> None:
+    try:
+        RemoteWorkerClient(worker_config).validate_entitlement(repo_ids)
+    except BuilderValidationError:
+        raise
+    except Exception as exc:
+        raise BuilderValidationError(f"Remote RHEL worker validation failed: {exc}") from exc
 
 
 def tool_view_models(limit: int | None = None) -> list[dict[str, str]]:
@@ -657,6 +704,13 @@ def settings_map(db: Session) -> dict[str, Any]:
         "max_concurrent_builds": saved.get("max_concurrent_builds", "1"),
         "retain_failed_workspaces": saved.get("retain_failed_workspaces", "true") == "true",
         "require_signed_metadata": saved.get("require_signed_metadata", "true") == "true",
+        "remote_worker_name": saved.get("remote_worker_name", "rhel-worker"),
+        "remote_worker_host": saved.get("remote_worker_host", ""),
+        "remote_worker_username": saved.get("remote_worker_username", ""),
+        "remote_worker_port": saved.get("remote_worker_port", "22"),
+        "remote_worker_key_path": saved.get("remote_worker_key_path", ""),
+        "remote_worker_root": saved.get("remote_worker_root", "/var/lib/repoforge-worker"),
+        "remote_worker_app_path": saved.get("remote_worker_app_path", "/opt/repoforge"),
     }
 
 
@@ -712,26 +766,32 @@ def execute_build_job(job_id: int) -> None:
         job.stage = "building"
         db.commit()
 
-        result = BuildOrchestrator(log=log).build(
-            BuildRequest(
-                bundle_id=str(bundle.id),
-                bundle_name=bundle.name,
-                target_os=f"{bundle.target_os}{bundle.target_os_version}",
-                architecture=bundle.architecture,
-                workspace_dir=workspace,
-                artifact_dir=artifact_dir,
-                repo_sync_plans=plans,
-                repo_sources=[repo_source_manifest(source) for source in repo_sources],
-                packages=packages,
-                uploaded_rpms=uploaded_rpms,
-                gpg_fingerprint=latest_key.fingerprint if latest_key and bundle.signing_mode != "disabled" else None,
-                fail_on_missing_tools=settings.require_system_tools_for_build,
-                fail_on_unresolved_dependencies=bundle.fail_on_unresolved_dependencies,
-                iso_label=bundle.iso_label or "REPOFORGE",
-                include_install_scripts=bundle.include_install_scripts,
-                include_validation_scripts=bundle.include_validation_scripts,
-            )
+        worker_config = worker_config_from_settings(settings_map(db))
+        build_request = BuildRequest(
+            bundle_id=str(bundle.id),
+            bundle_name=bundle.name,
+            target_os=f"{bundle.target_os}{bundle.target_os_version}",
+            architecture=bundle.architecture,
+            workspace_dir=workspace,
+            artifact_dir=artifact_dir,
+            job_id=str(job.id),
+            builder_mode=normalize_builder_mode(job.builder_mode or bundle.builder_mode),
+            worker=job.worker or "",
+            repo_sync_plans=plans,
+            repo_sources=[repo_source_manifest(source) for source in repo_sources],
+            packages=packages,
+            uploaded_rpms=uploaded_rpms,
+            gpg_fingerprint=latest_key.fingerprint if latest_key and bundle.signing_mode != "disabled" else None,
+            fail_on_missing_tools=settings.require_system_tools_for_build,
+            fail_on_unresolved_dependencies=bundle.fail_on_unresolved_dependencies,
+            iso_label=bundle.iso_label or "REPOFORGE",
+            include_install_scripts=bundle.include_install_scripts,
+            include_validation_scripts=bundle.include_validation_scripts,
         )
+        if build_request.builder_mode == "remote-rhel-worker":
+            result = RemoteWorkerClient(worker_config).run_build(build_request, log=log)
+        else:
+            result = BuildOrchestrator(log=log).build(build_request)
         if not result.iso_path:
             raise RuntimeError("build completed without an ISO path")
         artifact = Artifact(

@@ -8,6 +8,7 @@
 {% block content %}
   {% set tabs = [
     {'key': 'identity', 'label': 'Identity', 'href': '#identity'},
+    {'key': 'deployment', 'label': 'Deployment', 'href': '#deployment'},
     {'key': 'sources', 'label': 'Sources', 'href': '#sources'},
     {'key': 'packages', 'label': 'Packages', 'href': '#packages'},
     {'key': 'output', 'label': 'Output', 'href': '#output'}
@@ -26,6 +27,14 @@
         {{ select_input('architecture', 'Architecture', arch_options | default(['x86_64', 'aarch64']), bundle.architecture if is_edit else 'x86_64', required=True) }}
         {{ select_input('signing_mode', 'Signing Mode', signing_options | default(['metadata', 'packages_and_metadata', 'disabled']), bundle.signing_mode if is_edit else 'metadata') }}
         {{ textarea('description', 'Description', bundle.description if is_edit else '', 3, 'Purpose, target environment, or change ticket') }}
+      </div>
+    </section>
+
+    <section id="deployment" class="form-section">
+      <h2>Builder Deployment</h2>
+      <div class="form-grid">
+        {{ select_input('builder_mode', 'Builder Mode', builder_mode_options | default(['container', 'local-rhel', 'remote-rhel-worker', 'external-mirror']), bundle.builder_mode if is_edit else 'container', required=True, help_text='Choose where repository sync and ISO assembly should run.') }}
+        <p class="note field-full">{{ rhel_cdn_notice }}</p>
       </div>
     </section>
 

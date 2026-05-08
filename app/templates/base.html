@@ -4,6 +4,15 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}RepoForge{% endblock %}</title>
+  <script>
+    (function () {
+      try {
+        var stored = localStorage.getItem("repoforge-theme");
+        var theme = stored || (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+        document.documentElement.setAttribute("data-theme", theme);
+      } catch (error) {}
+    })();
+  </script>
   <link rel="stylesheet" href="{{ url_for('static', path='css/repoforge.css') }}">
   {% block head %}{% endblock %}
 </head>
@@ -52,6 +61,7 @@
           <h1>{% block page_title %}Dashboard{% endblock %}</h1>
         </div>
         <div class="topbar-actions">
+          <button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle dark mode" title="Toggle dark mode">Theme</button>
           {% block actions %}{% endblock %}
         </div>
       </header>

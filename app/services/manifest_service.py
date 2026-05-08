@@ -26,6 +26,8 @@ class BundleManifest:
     bundle_name: str
     target_os: str
     architecture: str
+    builder_mode: str = "container"
+    worker: str = ""
     build_status: str = "completed"
     created_at: str = field(default_factory=utc_now_iso)
     repo_sources: list[dict[str, Any]] = field(default_factory=list)
@@ -60,4 +62,3 @@ def write_package_list(packages: list[dict[str, Any] | str], output_path: Path |
             names.append(str(package.get("name") or package.get("nevra") or package))
     output.write_text("\n".join(sorted(names)) + ("\n" if names else ""), encoding="utf-8")
     return output
-

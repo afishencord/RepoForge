@@ -9,12 +9,32 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.services.checksum_service import generate_checksums, sha256_file, write_sha256sums
+from app.services.builder_deployment import (
+    BuilderValidationError,
+    RemoteWorkerConfig,
+    normalize_builder_mode,
+    validate_builder_mode_for_sources,
+)
+from app.services.build_orchestrator import BuildRequest
+from app.services.build_request_io import build_request_from_dict, build_request_to_dict, with_remote_paths
 from app.services.dependency_service import filter_rpm_requirements
 from app.services.dnf_service import RepoSource, create_repo_file_content, dnf_download_command, reposync_command, temporary_repo_dir, with_reposdir
 from app.services.gpg_service import GpgKeyRequest, key_params_content
 from app.services.iso_service import copy_into_iso_root, xorriso_command
 from app.services.manifest_service import BundleManifest, write_manifest, write_package_list
 from app.services.runner import SubprocessRunner, mask_args, require_relative_path
+
+
+class RecordingRunner:
+    def __init__(self) -> None:
+        self.commands: list[list[str]] = []
+
+    def run(self, args, **kwargs):  # type: ignore[no-untyped-def]
+        self.commands.append(list(args))
+        stdout = "rhel-9-baseos-rpms Red Hat Enterprise Linux 9 BaseOS\n" if args[:2] == ["dnf", "repolist"] else ""
+        from app.services.runner import CommandResult
+
+        return CommandResult(args=tuple(args), returncode=0, stdout=stdout)
 
 
 def test_require_relative_path_blocks_escape(tmp_path: Path) -> None:
@@ -38,6 +58,82 @@ def test_runner_rejects_shell_string() -> None:
 
     with pytest.raises(ValueError):
         runner.run("echo unsafe")  # type: ignore[arg-type]
+
+
+def test_builder_mode_normalization_defaults_unknown_values() -> None:
+    assert normalize_builder_mode("remote-rhel-worker") == "remote-rhel-worker"
+    assert normalize_builder_mode("bogus") == "container"
+
+
+def test_redhat_container_mode_requires_local_entitlement_tools() -> None:
+    source = {"name": "RHEL BaseOS", "source_type": "redhat9", "repo_id": "rhel-9-baseos-rpms", "enabled": True}
+
+    with pytest.raises(BuilderValidationError, match="subscription-manager"):
+        validate_builder_mode_for_sources("container", [source], command_exists=lambda name: None)
+
+
+def test_local_rhel_validation_checks_subscription_and_repo_ids() -> None:
+    source = {"name": "RHEL BaseOS", "source_type": "redhat9", "repo_id": "rhel-9-baseos-rpms", "enabled": True}
+    runner = RecordingRunner()
+
+    validate_builder_mode_for_sources("local-rhel", [source], runner=runner, command_exists=lambda name: f"/usr/bin/{name}")
+
+    assert runner.commands == [
+        ["subscription-manager", "identity"],
+        ["subscription-manager", "repos", "--list-enabled"],
+        ["dnf", "repolist", "--enabled"],
+    ]
+
+
+def test_external_mirror_requires_redhat_sources_to_have_urls() -> None:
+    source = {"name": "RHEL BaseOS", "source_type": "redhat9", "repo_id": "rhel-9-baseos-rpms", "enabled": True}
+
+    with pytest.raises(BuilderValidationError, match="base URL or mirrorlist"):
+        validate_builder_mode_for_sources("external-mirror", [source])
+
+    validate_builder_mode_for_sources("external-mirror", [{**source, "base_url": "https://mirror.example/rhel9"}])
+
+
+def test_remote_worker_mode_requires_worker_settings() -> None:
+    source = {"name": "RHEL BaseOS", "source_type": "redhat9", "repo_id": "rhel-9-baseos-rpms", "enabled": True}
+
+    with pytest.raises(BuilderValidationError, match="configured worker"):
+        validate_builder_mode_for_sources("remote-rhel-worker", [source], worker_config=RemoteWorkerConfig())
+
+    generic_source = {"name": "Docker CE", "source_type": "generic_yum", "repo_id": "docker-ce", "enabled": True}
+    with pytest.raises(BuilderValidationError, match="configured worker"):
+        validate_builder_mode_for_sources("remote-rhel-worker", [generic_source], worker_config=RemoteWorkerConfig())
+
+
+def test_build_request_serialization_round_trips_remote_paths(tmp_path: Path) -> None:
+    rpm = tmp_path / "custom.rpm"
+    rpm.write_text("rpm payload", encoding="utf-8")
+    request = BuildRequest(
+        bundle_id="1",
+        bundle_name="rhel baseline",
+        target_os="rhel9",
+        architecture="x86_64",
+        workspace_dir=tmp_path / "workspace",
+        artifact_dir=tmp_path / "artifacts",
+        job_id="42",
+        builder_mode="remote-rhel-worker",
+        worker="rhel-worker",
+        repo_sync_plans=[],
+        uploaded_rpms=[{"storage_path": str(rpm), "original_filename": "custom.rpm"}],
+    )
+
+    remote = with_remote_paths(
+        request,
+        remote_workspace="/var/lib/repoforge-worker/42/workspace",
+        remote_artifact_dir="/var/lib/repoforge-worker/42/artifacts",
+        remote_upload_dir="/var/lib/repoforge-worker/42/input/uploads",
+    )
+    data = build_request_to_dict(remote)
+    restored = build_request_from_dict(data)
+
+    assert restored.builder_mode == "remote-rhel-worker"
+    assert restored.worker == "rhel-worker"
+    assert restored.uploaded_rpms[0]["storage_path"] == "/var/lib/repoforge-worker/42/input/uploads/custom.rpm"
 
 
 def test_checksum_generation_and_sha256sums_are_stable(tmp_path: Path) -> None:

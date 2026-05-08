@@ -12,6 +12,10 @@
 - GPG key generation and public-key download
 - System dependency inspection page
 - Docker and Compose deployment
+- Builder mode selection for container, local RHEL, remote RHEL worker, and external mirror execution
+- RHEL entitlement validation before Red Hat CDN builds are queued
+- Remote RHEL worker dispatch over SSH/SFTP using serialized build requests
+- Dark mode with persisted user preference and system-theme default
 - Generated RepoForge logo and dashboard visual under `app/static/img`
 
 ## Builder Deployment Strategy
@@ -24,6 +28,13 @@ Planned builder modes:
 - `local-rhel`: Run RepoForge directly on an entitled RHEL host and use the host's `subscription-manager`, `/etc/yum.repos.d/redhat.repo`, and enabled Red Hat repo IDs.
 - `remote-rhel-worker`: Keep the web UI containerized, but dispatch build jobs to one or more entitled RHEL builder hosts over SSH or a lightweight worker agent.
 - `external-mirror`: Consume already-mirrored enterprise repositories from Satellite, Pulp, Katello, Nexus, Artifactory, or another internal mirror service.
+
+Current implementation:
+
+- Bundle configuration persists the selected builder mode and snapshots it onto build jobs.
+- Local/container Red Hat CDN builds run `subscription-manager` and enabled-repo checks before queuing.
+- Remote RHEL worker mode uses key-based SSH/SFTP via Paramiko, uploads a job archive, runs `python3 -m app.workers.remote_build` on the worker, and copies artifacts back.
+- External mirror mode permits Red Hat-like sources only when a source has a `base_url` or `mirrorlist`.
 
 RHEL-specific validation should happen before a build starts:
 
@@ -45,10 +56,8 @@ This keeps Compose useful for the main application while giving enterprise users
 
 ## TODO
 
-- Add builder mode selection and validation for `container`, `local-rhel`, `remote-rhel-worker`, and `external-mirror`.
-- Implement RHEL entitlement checks and clearer Red Hat source error messages.
-- Add remote worker execution for entitled RHEL builders.
-- Add first-class external mirror support for Satellite/Pulp/Katello-style repositories.
+- Add multi-worker scheduling and worker health/status views.
+- Add credential handling for private external mirrors and authenticated remote workers.
 - Add support for non-RPM repositories such as Ubuntu/Apt.
 - Integrate Python wheelhouse libraries into ISO output.
 

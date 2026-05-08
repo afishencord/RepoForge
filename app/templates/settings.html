@@ -18,6 +18,19 @@
         {{ checkbox('require_signed_metadata', 'Require signed repository metadata', cfg.require_signed_metadata | default(True)) }}
       </div>
     </section>
+    <section class="form-section">
+      <h2>Remote RHEL Worker</h2>
+      <div class="form-grid">
+        {{ text_input('remote_worker_name', 'Worker Name', cfg.remote_worker_name | default('rhel-worker')) }}
+        {{ text_input('remote_worker_host', 'Host', cfg.remote_worker_host | default(''), placeholder='rhel-builder.example.com') }}
+        {{ text_input('remote_worker_username', 'Username', cfg.remote_worker_username | default(''), placeholder='repoforge') }}
+        {{ text_input('remote_worker_port', 'Port', cfg.remote_worker_port | default('22'), 'number') }}
+        {{ text_input('remote_worker_key_path', 'SSH Key Path', cfg.remote_worker_key_path | default(''), placeholder='/run/secrets/repoforge_worker_key') }}
+        {{ text_input('remote_worker_root', 'Remote Work Root', cfg.remote_worker_root | default('/var/lib/repoforge-worker')) }}
+        {{ text_input('remote_worker_app_path', 'Remote App Path', cfg.remote_worker_app_path | default('/opt/repoforge')) }}
+        <p class="note field-full">Remote workers use key-based SSH authentication. Passwords are not stored by RepoForge.</p>
+      </div>
+    </section>
     <div class="form-actions">
       <button class="btn btn-primary" type="submit">Save Settings</button>
     </div>
