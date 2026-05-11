@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 import json
 from pathlib import Path
 import re
+import secrets
 import shutil
 import traceback
 from typing import Any
@@ -16,6 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
+from starlette.middleware.sessions import SessionMiddleware
 
 from app.config import PROJECT_ROOT, settings
 from app.database import SessionLocal, get_db, init_db
@@ -27,10 +29,26 @@ from app.models import (
     RepoSource,
     Setting,
     UploadedRPM,
+    User,
     format_datetime,
     json_dump,
     parse_lines,
     utc_now,
+)
+from app.services.auth_service import (
+    VALID_ROLES,
+    authenticate_ldap,
+    authenticate_local,
+    authenticate_oidc_callback,
+    enabled_provider,
+    get_provider,
+    has_role,
+    hash_password,
+    normalize_role,
+    oidc_authorization_url,
+    provider_config,
+    set_role_mappings,
+    upsert_provider,
 )
 from app.services.builder_deployment import (
     RHEL_CDN_NOTICE,
@@ -62,11 +80,40 @@ def startup() -> None:
     init_db()
 
 
+PUBLIC_PATHS = {"/healthz", "/login", "/logout"}
+PUBLIC_PREFIXES = ("/static/", "/auth/")
+
+
+@app.middleware("http")
+async def require_authenticated_session(request: Request, call_next):  # type: ignore[no-untyped-def]
+    request.state.current_user = None
+    path = request.url.path
+    public = path in PUBLIC_PATHS or any(path.startswith(prefix) for prefix in PUBLIC_PREFIXES)
+    user_id = request.session.get("user_id")
+    if user_id:
+        db = SessionLocal()
+        try:
+            user = db.get(User, int(user_id))
+            if user and user.is_active:
+                request.state.current_user = user
+        finally:
+            db.close()
+    if not public and request.state.current_user is None:
+        return redirect(f"/login?next={url_quote(str(request.url.path))}")
+    return await call_next(request)
+
+
+app.add_middleware(SessionMiddleware, secret_key=settings.secret_key, same_site="lax", https_only=False)
+
+
 def render(request: Request, template_name: str, context: dict[str, Any] | None = None, *, status_code: int = 200):
     data = dict(context or {})
     data.setdefault("request", request)
     data.setdefault("system_status", quick_system_status())
     data.setdefault("flash_messages", flash_messages(request))
+    data.setdefault("current_user", getattr(request.state, "current_user", None))
+    data.setdefault("csrf_token", csrf_token(request))
+    data.setdefault("can", lambda role: has_role(getattr(request.state, "current_user", None), role))
     return templates.TemplateResponse(request, template_name, data, status_code=status_code)
 
 
@@ -95,6 +142,49 @@ def url_quote(value: str) -> str:
     return quote(value, safe="")
 
 
+def csrf_token(request: Request) -> str:
+    token = request.session.get("csrf_token")
+    if not token:
+        token = secrets.token_urlsafe(32)
+        request.session["csrf_token"] = token
+    return str(token)
+
+
+def establish_session(request: Request, user: User) -> None:
+    request.session.clear()
+    request.session["user_id"] = user.id
+    request.session["csrf_token"] = secrets.token_urlsafe(32)
+
+
+def safe_next(value: str) -> str:
+    if not value.startswith("/") or value.startswith("//"):
+        return "/"
+    return value
+
+
+async def require_csrf(request: Request) -> None:
+    form = await request.form()
+    submitted = str(form.get("csrf_token") or "")
+    expected = str(request.session.get("csrf_token") or "")
+    if not expected or not secrets.compare_digest(submitted, expected):
+        raise HTTPException(status_code=403, detail="Invalid CSRF token")
+
+
+def require_role(role: str):
+    def dependency(request: Request) -> User:
+        user = getattr(request.state, "current_user", None)
+        if not has_role(user, role):
+            raise HTTPException(status_code=403, detail="Insufficient permissions")
+        return user
+
+    return dependency
+
+
+require_admin = require_role("admin")
+require_operator = require_role("operator")
+require_user = require_role("user")
+
+
 def safe_slug(value: str) -> str:
     slug = re.sub(r"[^A-Za-z0-9._-]+", "-", value.strip()).strip("-").lower()
     return slug or "item"
@@ -120,6 +210,81 @@ def filter_records(records: list[Any], q: str | None, fields: tuple[str, ...]) -
         if needle in haystack:
             filtered.append(record)
     return filtered
+
+
+@app.get("/login")
+def login_page(request: Request, next: str | None = None, db: Session = Depends(get_db)):
+    if getattr(request.state, "current_user", None):
+        return redirect(next or "/")
+    return render(
+        request,
+        "auth/login.html",
+        {
+            "next_url": next or "/",
+            "ldap_enabled": enabled_provider(db, "ldap") is not None,
+            "adfs_enabled": enabled_provider(db, "adfs_oidc") is not None,
+        },
+    )
+
+
+@app.post("/login", dependencies=[Depends(require_csrf)])
+async def login_local(request: Request, db: Session = Depends(get_db)):
+    form = await request.form()
+    next_url = safe_next(str(form.get("next") or "/"))
+    username = str(form.get("username") or "")
+    password = str(form.get("password") or "")
+    user = authenticate_local(db, username, password)
+    if not user:
+        return redirect(f"/login?next={url_quote(next_url)}", notice="Invalid username or password", level="error")
+    establish_session(request, user)
+    return redirect(next_url, notice="Signed in", level="success")
+
+
+@app.post("/login/ldap", dependencies=[Depends(require_csrf)])
+async def login_ldap(request: Request, db: Session = Depends(get_db)):
+    form = await request.form()
+    next_url = safe_next(str(form.get("next") or "/"))
+    try:
+        user = authenticate_ldap(db, str(form.get("username") or ""), str(form.get("password") or ""))
+    except Exception as exc:
+        return redirect(f"/login?next={url_quote(next_url)}", notice=f"LDAP login failed: {exc}", level="error")
+    if not user:
+        return redirect(f"/login?next={url_quote(next_url)}", notice="Invalid LDAP username or password", level="error")
+    establish_session(request, user)
+    return redirect(next_url, notice="Signed in with LDAP", level="success")
+
+
+@app.get("/auth/adfs/login")
+def adfs_login(request: Request, next: str | None = None, db: Session = Depends(get_db)):
+    state = secrets.token_urlsafe(24)
+    request.session["oidc_state"] = state
+    request.session["oidc_next"] = safe_next(next or "/")
+    redirect_uri = str(request.url_for("adfs_callback"))
+    try:
+        auth_url = oidc_authorization_url(db, redirect_uri, state)
+    except Exception as exc:
+        return redirect("/login", notice=f"ADFS is not ready: {exc}", level="error")
+    return RedirectResponse(auth_url, status_code=303)
+
+
+@app.get("/auth/adfs/callback")
+def adfs_callback(request: Request, code: str | None = None, state: str | None = None, db: Session = Depends(get_db)):
+    expected_state = request.session.pop("oidc_state", "")
+    next_url = safe_next(str(request.session.pop("oidc_next", "/")))
+    if not code or not state or not expected_state or not secrets.compare_digest(state, expected_state):
+        return redirect("/login", notice="Invalid ADFS sign-in response", level="error")
+    try:
+        user = authenticate_oidc_callback(db, code, str(request.url_for("adfs_callback")))
+    except Exception as exc:
+        return redirect("/login", notice=f"ADFS sign-in failed: {exc}", level="error")
+    establish_session(request, user)
+    return redirect(next_url, notice="Signed in with ADFS", level="success")
+
+
+@app.get("/logout")
+def logout(request: Request):
+    request.session.clear()
+    return redirect("/login", notice="Signed out", level="success")
 
 
 @app.get("/")
@@ -160,12 +325,12 @@ def bundles(request: Request, q: str | None = None, db: Session = Depends(get_db
 
 
 @app.get("/bundles/new")
-def new_bundle(request: Request, db: Session = Depends(get_db)):
+def new_bundle(request: Request, db: Session = Depends(get_db), _current: User = Depends(require_operator)):
     return render(request, "bundles/form.html", bundle_form_context(db))
 
 
-@app.post("/bundles")
-async def create_bundle(request: Request, db: Session = Depends(get_db)):
+@app.post("/bundles", dependencies=[Depends(require_csrf)])
+async def create_bundle(request: Request, db: Session = Depends(get_db), _current: User = Depends(require_operator)):
     form = await request.form()
     bundle = Bundle()
     apply_bundle_form(bundle, form, db)
@@ -201,13 +366,13 @@ def bundle_detail(request: Request, bundle_id: int, tab: str | None = None, db: 
 
 
 @app.get("/bundles/{bundle_id}/edit")
-def edit_bundle(request: Request, bundle_id: int, db: Session = Depends(get_db)):
+def edit_bundle(request: Request, bundle_id: int, db: Session = Depends(get_db), _current: User = Depends(require_operator)):
     bundle = get_or_404(db, Bundle, bundle_id)
     return render(request, "bundles/form.html", bundle_form_context(db, bundle))
 
 
-@app.post("/bundles/{bundle_id}")
-async def update_bundle(request: Request, bundle_id: int, db: Session = Depends(get_db)):
+@app.post("/bundles/{bundle_id}", dependencies=[Depends(require_csrf)])
+async def update_bundle(request: Request, bundle_id: int, db: Session = Depends(get_db), _current: User = Depends(require_operator)):
     form = await request.form()
     bundle = get_or_404(db, Bundle, bundle_id)
     apply_bundle_form(bundle, form, db)
@@ -216,13 +381,13 @@ async def update_bundle(request: Request, bundle_id: int, db: Session = Depends(
 
 
 @app.get("/bundles/{bundle_id}/sources")
-def bundle_sources(request: Request, bundle_id: int, db: Session = Depends(get_db)):
+def bundle_sources(request: Request, bundle_id: int, db: Session = Depends(get_db), _current: User = Depends(require_operator)):
     bundle = get_or_404(db, Bundle, bundle_id)
     return render(request, "bundles/sources.html", bundle_form_context(db, bundle))
 
 
-@app.post("/bundles/{bundle_id}/sources")
-async def update_bundle_sources(request: Request, bundle_id: int, db: Session = Depends(get_db)):
+@app.post("/bundles/{bundle_id}/sources", dependencies=[Depends(require_csrf)])
+async def update_bundle_sources(request: Request, bundle_id: int, db: Session = Depends(get_db), _current: User = Depends(require_operator)):
     form = await request.form()
     bundle = get_or_404(db, Bundle, bundle_id)
     ids = [int(value) for value in form.getlist("repo_source_ids") if str(value).isdigit()]
@@ -231,8 +396,8 @@ async def update_bundle_sources(request: Request, bundle_id: int, db: Session = 
     return redirect(f"/bundles/{bundle.id}?tab=sources", notice="Repository source selection updated", level="success")
 
 
-@app.get("/bundles/{bundle_id}/build")
-def start_bundle_build(bundle_id: int, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+@app.post("/bundles/{bundle_id}/build", dependencies=[Depends(require_csrf)])
+def start_bundle_build(bundle_id: int, background_tasks: BackgroundTasks, db: Session = Depends(get_db), current_user: User = Depends(require_operator)):
     bundle = get_or_404(db, Bundle, bundle_id)
     builder_mode = normalize_builder_mode(bundle.builder_mode)
     worker_config = worker_config_from_settings(settings_map(db))
@@ -252,6 +417,7 @@ def start_bundle_build(bundle_id: int, background_tasks: BackgroundTasks, db: Se
         name=f"{safe_slug(bundle.name)}-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}",
         builder_mode=builder_mode,
         worker=worker_config.display_name if builder_mode == "remote-rhel-worker" else builder_mode,
+        created_by=current_user.username,
     )
     db.add(job)
     db.commit()
@@ -266,7 +432,7 @@ def start_bundle_build(bundle_id: int, background_tasks: BackgroundTasks, db: Se
 
 
 @app.get("/repo-sources")
-def repo_sources(request: Request, q: str | None = None, db: Session = Depends(get_db)):
+def repo_sources(request: Request, q: str | None = None, db: Session = Depends(get_db), _current: User = Depends(require_operator)):
     records = query_all(db, RepoSource, RepoSource.created_at.desc())
     return render(
         request,
@@ -276,12 +442,12 @@ def repo_sources(request: Request, q: str | None = None, db: Session = Depends(g
 
 
 @app.get("/repo-sources/new")
-def new_repo_source(request: Request):
+def new_repo_source(request: Request, _current: User = Depends(require_operator)):
     return render(request, "repo_sources/form.html", repo_source_form_context())
 
 
-@app.post("/repo-sources")
-async def create_repo_source(request: Request, db: Session = Depends(get_db)):
+@app.post("/repo-sources", dependencies=[Depends(require_csrf)])
+async def create_repo_source(request: Request, db: Session = Depends(get_db), _current: User = Depends(require_operator)):
     form = await request.form()
     source = RepoSource()
     apply_repo_source_form(source, form)
@@ -292,13 +458,13 @@ async def create_repo_source(request: Request, db: Session = Depends(get_db)):
 
 
 @app.get("/repo-sources/{source_id}/edit")
-def edit_repo_source(request: Request, source_id: int, db: Session = Depends(get_db)):
+def edit_repo_source(request: Request, source_id: int, db: Session = Depends(get_db), _current: User = Depends(require_operator)):
     source = get_or_404(db, RepoSource, source_id)
     return render(request, "repo_sources/form.html", repo_source_form_context(source))
 
 
-@app.post("/repo-sources/{source_id}")
-async def update_repo_source(request: Request, source_id: int, db: Session = Depends(get_db)):
+@app.post("/repo-sources/{source_id}", dependencies=[Depends(require_csrf)])
+async def update_repo_source(request: Request, source_id: int, db: Session = Depends(get_db), _current: User = Depends(require_operator)):
     form = await request.form()
     source = get_or_404(db, RepoSource, source_id)
     apply_repo_source_form(source, form)
@@ -306,8 +472,8 @@ async def update_repo_source(request: Request, source_id: int, db: Session = Dep
     return redirect("/repo-sources", notice="Repository source updated", level="success")
 
 
-@app.get("/repo-sources/{source_id}/sync")
-def sync_repo_source(source_id: int, db: Session = Depends(get_db)):
+@app.post("/repo-sources/{source_id}/sync", dependencies=[Depends(require_csrf)])
+def sync_repo_source(source_id: int, db: Session = Depends(get_db), _current: User = Depends(require_operator)):
     source = get_or_404(db, RepoSource, source_id)
     runner = SubprocessRunner(default_timeout=60)
     try:
@@ -323,24 +489,25 @@ def sync_repo_source(source_id: int, db: Session = Depends(get_db)):
 
 
 @app.get("/custom-rpms")
-def custom_rpms(request: Request, db: Session = Depends(get_db)):
+def custom_rpms(request: Request, db: Session = Depends(get_db), _current: User = Depends(require_operator)):
     rpm_packages = list(db.scalars(select(UploadedRPM).order_by(UploadedRPM.uploaded_at.desc())).all())
     return render(request, "custom_rpms.html", {"rpm_packages": rpm_packages})
 
 
 @app.get("/custom-rpms/upload")
-def upload_rpms_form(request: Request, db: Session = Depends(get_db)):
+def upload_rpms_form(request: Request, db: Session = Depends(get_db), _current: User = Depends(require_operator)):
     bundles = query_all(db, Bundle, Bundle.name.asc())
     return render(request, "custom_rpms_upload.html", {"bundles": bundles})
 
 
-@app.post("/custom-rpms/upload")
+@app.post("/custom-rpms/upload", dependencies=[Depends(require_csrf)])
 async def upload_rpm(
     request: Request,
     bundle_id: int = Form(...),
     resolve_dependencies: bool = Form(False),
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
+    _current: User = Depends(require_operator),
 ):
     bundle = get_or_404(db, Bundle, bundle_id)
     original_name = safe_filename(file.filename or "")
@@ -394,8 +561,8 @@ async def upload_rpm(
     return redirect("/custom-rpms", notice="RPM uploaded", level="success")
 
 
-@app.post("/custom-rpms/{rpm_id}/toggle-dependencies")
-def toggle_rpm_dependencies(rpm_id: int, db: Session = Depends(get_db)):
+@app.post("/custom-rpms/{rpm_id}/toggle-dependencies", dependencies=[Depends(require_csrf)])
+def toggle_rpm_dependencies(rpm_id: int, db: Session = Depends(get_db), _current: User = Depends(require_operator)):
     rpm = get_or_404(db, UploadedRPM, rpm_id)
     rpm.resolve_dependencies = not rpm.resolve_dependencies
     rpm.dependency_status = "pending" if rpm.resolve_dependencies else "not_checked"
@@ -410,12 +577,12 @@ def keys(request: Request, db: Session = Depends(get_db)):
 
 
 @app.get("/keys/new")
-def new_key(request: Request):
+def new_key(request: Request, _current: User = Depends(require_operator)):
     return render(request, "keys_form.html")
 
 
-@app.post("/keys")
-async def create_key(request: Request, db: Session = Depends(get_db)):
+@app.post("/keys", dependencies=[Depends(require_csrf)])
+async def create_key(request: Request, db: Session = Depends(get_db), _current: User = Depends(require_operator)):
     form = await request.form()
     if not shutil.which("gpg"):
         return redirect("/keys", notice="gpg is not installed on this builder", level="error")
@@ -527,17 +694,17 @@ def download_manifest(artifact_id: int, db: Session = Depends(get_db)):
 
 
 @app.get("/system")
-def system(request: Request):
+def system(request: Request, _current: User = Depends(require_operator)):
     return render(request, "system.html", {"tool_checks": tool_view_models(), "storage_stats": storage_stats()})
 
 
 @app.get("/settings")
-def settings_page(request: Request, db: Session = Depends(get_db)):
+def settings_page(request: Request, db: Session = Depends(get_db), _current: User = Depends(require_operator)):
     return render(request, "settings.html", {"settings": settings_map(db), "iso_tool_options": ["xorriso", "genisoimage"]})
 
 
-@app.post("/settings")
-async def update_settings(request: Request, db: Session = Depends(get_db)):
+@app.post("/settings", dependencies=[Depends(require_csrf)])
+async def update_settings(request: Request, db: Session = Depends(get_db), _current: User = Depends(require_admin)):
     form = await request.form()
     for key in (
         "workspace_root",
@@ -560,6 +727,123 @@ async def update_settings(request: Request, db: Session = Depends(get_db)):
         db.merge(setting)
     db.commit()
     return redirect("/settings", notice="Settings saved", level="success")
+
+
+@app.get("/admin/users")
+def admin_users(request: Request, db: Session = Depends(get_db), _current: User = Depends(require_admin)):
+    users = list(db.scalars(select(User).order_by(User.username.asc())).all())
+    return render(request, "admin/users.html", {"users": users, "role_options": VALID_ROLES})
+
+
+@app.post("/admin/users", dependencies=[Depends(require_csrf)])
+async def create_user(request: Request, db: Session = Depends(get_db), _current: User = Depends(require_admin)):
+    form = await request.form()
+    username = str(form.get("username") or "").strip()
+    password = str(form.get("password") or "")
+    if not username or not password:
+        return redirect("/admin/users", notice="Username and password are required", level="error")
+    if db.scalar(select(User).where(User.username == username)):
+        return redirect("/admin/users", notice="Username already exists", level="error")
+    user = User(
+        username=username,
+        email=str(form.get("email") or ""),
+        display_name=str(form.get("display_name") or username),
+        password_hash=hash_password(password),
+        role=normalize_role(str(form.get("role") or "user")),
+        auth_source="local",
+        is_active="is_active" in form,
+    )
+    db.add(user)
+    db.commit()
+    return redirect("/admin/users", notice="User created", level="success")
+
+
+@app.post("/admin/users/{user_id}", dependencies=[Depends(require_csrf)])
+async def update_user(user_id: int, request: Request, db: Session = Depends(get_db), _current: User = Depends(require_admin)):
+    form = await request.form()
+    user = get_or_404(db, User, user_id)
+    user.email = str(form.get("email") or "")
+    user.display_name = str(form.get("display_name") or user.username)
+    user.role = normalize_role(str(form.get("role") or user.role))
+    user.is_active = "is_active" in form
+    password = str(form.get("password") or "")
+    if password:
+        user.password_hash = hash_password(password)
+        user.auth_source = "local"
+    db.commit()
+    return redirect("/admin/users", notice="User updated", level="success")
+
+
+@app.get("/admin/auth")
+def admin_auth(request: Request, db: Session = Depends(get_db), _current: User = Depends(require_admin)):
+    ldap_provider = get_provider(db, "ldap")
+    adfs_provider = get_provider(db, "adfs_oidc")
+    return render(
+        request,
+        "admin/auth.html",
+        {
+            "ldap_provider": ldap_provider,
+            "ldap_config": provider_config(ldap_provider) if ldap_provider else {},
+            "adfs_provider": adfs_provider,
+            "adfs_config": provider_config(adfs_provider) if adfs_provider else {},
+            "role_options": VALID_ROLES,
+        },
+    )
+
+
+@app.post("/admin/auth/ldap", dependencies=[Depends(require_csrf)])
+async def update_ldap_provider(request: Request, db: Session = Depends(get_db), _current: User = Depends(require_admin)):
+    form = await request.form()
+    config = {
+        "server_uri": str(form.get("server_uri") or ""),
+        "verify_tls": "verify_tls" in form,
+        "bind_dn": str(form.get("bind_dn") or ""),
+        "user_base_dn": str(form.get("user_base_dn") or ""),
+        "user_filter": str(form.get("user_filter") or "(uid={username})"),
+        "user_dn_template": str(form.get("user_dn_template") or ""),
+        "username_attribute": str(form.get("username_attribute") or "uid"),
+        "email_attribute": str(form.get("email_attribute") or "mail"),
+        "display_name_attribute": str(form.get("display_name_attribute") or "cn"),
+        "group_attribute": str(form.get("group_attribute") or "memberOf"),
+    }
+    provider = upsert_provider(
+        db,
+        "ldap",
+        "LDAP",
+        "enabled" in form,
+        config,
+        {"bind_password": str(form.get("bind_password") or "")},
+    )
+    set_role_mappings(db, provider, role_mapping_rows(form))
+    return redirect("/admin/auth", notice="LDAP settings saved", level="success")
+
+
+@app.post("/admin/auth/adfs", dependencies=[Depends(require_csrf)])
+async def update_adfs_provider(request: Request, db: Session = Depends(get_db), _current: User = Depends(require_admin)):
+    form = await request.form()
+    config = {
+        "authorization_endpoint": str(form.get("authorization_endpoint") or ""),
+        "token_endpoint": str(form.get("token_endpoint") or ""),
+        "userinfo_endpoint": str(form.get("userinfo_endpoint") or ""),
+        "jwks_uri": str(form.get("jwks_uri") or ""),
+        "issuer": str(form.get("issuer") or ""),
+        "client_id": str(form.get("client_id") or ""),
+        "scopes": str(form.get("scopes") or "openid email profile"),
+        "username_claim": str(form.get("username_claim") or "upn"),
+        "email_claim": str(form.get("email_claim") or "email"),
+        "display_name_claim": str(form.get("display_name_claim") or "name"),
+        "groups_claim": str(form.get("groups_claim") or "groups"),
+    }
+    provider = upsert_provider(
+        db,
+        "adfs_oidc",
+        "Microsoft ADFS",
+        "enabled" in form,
+        config,
+        {"client_secret": str(form.get("client_secret") or "")},
+    )
+    set_role_mappings(db, provider, role_mapping_rows(form))
+    return redirect("/admin/auth", notice="ADFS settings saved", level="success")
 
 
 def bundle_form_context(db: Session, bundle: Bundle | None = None) -> dict[str, Any]:
@@ -626,6 +910,12 @@ def apply_repo_source_form(source: RepoSource, form: Any) -> None:
     source.requires_auth = "requires_auth" in form
     source.notes = str(form.get("notes") or "")
     source.subscription_required = source.source_type.startswith("redhat")
+
+
+def role_mapping_rows(form: Any) -> list[tuple[str, str]]:
+    groups = [str(value or "") for value in form.getlist("mapping_group")]
+    roles = [str(value or "user") for value in form.getlist("mapping_role")]
+    return list(zip(groups, roles))
 
 
 def required_text(form: Any, key: str) -> str:

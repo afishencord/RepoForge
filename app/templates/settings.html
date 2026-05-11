@@ -7,6 +7,7 @@
 {% block content %}
   {% set cfg = settings | default({}) %}
   <form class="form-panel" method="post" action="{{ form_action | default('/settings') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <section class="form-section">
       <h2>Build Defaults</h2>
       <div class="form-grid">
@@ -32,7 +33,11 @@
       </div>
     </section>
     <div class="form-actions">
-      <button class="btn btn-primary" type="submit">Save Settings</button>
+      {% if can('admin') %}
+        <button class="btn btn-primary" type="submit">Save Settings</button>
+      {% else %}
+        <span class="muted">Admins can change these settings.</span>
+      {% endif %}
     </div>
   </form>
 {% endblock %}

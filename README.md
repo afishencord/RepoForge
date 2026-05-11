@@ -19,6 +19,7 @@ The application is built with FastAPI, SQLAlchemy, SQLite, Jinja2 templates, and
 - Data ISO creation with `xorriso` or `genisoimage`
 - Artifact registry with ISO download and manifest access
 - System page for builder dependency inspection
+- Local authentication with Admin, Operator, and User roles plus configurable LDAP and Microsoft ADFS OIDC sign-in
 - Docker Compose deployment with persisted local storage
 
 ## Preferred Deployment
@@ -33,6 +34,13 @@ Open:
 
 ```text
 http://127.0.0.1:8000
+```
+
+Default local admin credentials:
+
+```text
+Username: admin
+Password: admin123!
 ```
 
 Useful Compose commands:

@@ -5,6 +5,7 @@
 {% block page_title %}{{ bundle.name }} Sources{% endblock %}
 {% block content %}
   <form class="form-panel" method="post" action="/bundles/{{ bundle.id }}/sources">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <section class="form-section">
       <h2>Repository Sources</h2>
       <div class="check-list">

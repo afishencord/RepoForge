@@ -1,0 +1,20 @@
+<section class="form-section">
+  <h2>Role Mappings</h2>
+  {% set mappings = provider.role_mappings if provider else [] %}
+  <div class="mapping-grid">
+    {% for mapping in mappings %}
+      <label class="field">
+        <span>External Group or Claim Value</span>
+        <input type="text" name="mapping_group" value="{{ mapping.external_group }}">
+      </label>
+      {{ select_input('mapping_role', 'Role', role_options, mapping.role) }}
+    {% endfor %}
+    {% for _ in range(3 - (mappings | length)) %}
+      <label class="field">
+        <span>External Group or Claim Value</span>
+        <input type="text" name="mapping_group" value="">
+      </label>
+      {{ select_input('mapping_role', 'Role', role_options, 'user') }}
+    {% endfor %}
+  </div>
+</section>

@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% from "partials/form_fields.html" import text_input %}
+{% block title %}Login - RepoForge{% endblock %}
+{% block eyebrow %}Authentication{% endblock %}
+{% block page_title %}Sign in{% endblock %}
+{% block content %}
+  <section class="auth-grid">
+    <form class="form-panel" method="post" action="/login">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="next" value="{{ next_url }}">
+      <section class="form-section">
+        <h2>Local Account</h2>
+        <div class="form-grid single">
+          {{ text_input('username', 'Username', '', required=True) }}
+          {{ text_input('password', 'Password', '', 'password', required=True) }}
+        </div>
+      </section>
+      <div class="form-actions">
+        <button class="btn btn-primary" type="submit">Sign in</button>
+      </div>
+    </form>
+
+    {% if ldap_enabled %}
+      <form class="form-panel" method="post" action="/login/ldap">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="next" value="{{ next_url }}">
+        <section class="form-section">
+          <h2>LDAP</h2>
+          <div class="form-grid single">
+            {{ text_input('username', 'Username', '', required=True) }}
+            {{ text_input('password', 'Password', '', 'password', required=True) }}
+          </div>
+        </section>
+        <div class="form-actions">
+          <button class="btn btn-secondary" type="submit">Sign in with LDAP</button>
+        </div>
+      </form>
+    {% endif %}
+
+    {% if adfs_enabled %}
+      <section class="form-panel">
+        <div class="form-section">
+          <h2>Microsoft ADFS</h2>
+          <p class="note">Use your configured enterprise identity provider.</p>
+        </div>
+        <div class="form-actions">
+          <a class="btn btn-secondary" href="/auth/adfs/login?next={{ next_url | urlencode }}">Sign in with ADFS</a>
+        </div>
+      </section>
+    {% endif %}
+  </section>
+{% endblock %}

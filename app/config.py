@@ -22,6 +22,8 @@ def _path_from_env(name: str, default: str) -> Path:
 class Settings:
     app_name: str = "RepoForge"
     database_url: str = os.getenv("REPOFORGE_DATABASE_URL", f"sqlite:///{PROJECT_ROOT / 'storage' / 'repoforge.db'}")
+    secret_key: str = os.getenv("REPOFORGE_SECRET_KEY", "repoforge-dev-secret-change-me")
+    auth_secret_key: str = os.getenv("REPOFORGE_AUTH_SECRET_KEY", os.getenv("REPOFORGE_SECRET_KEY", "repoforge-dev-secret-change-me"))
     storage_root: Path = _path_from_env("REPOFORGE_STORAGE_ROOT", "storage")
     upload_root: Path = _path_from_env("REPOFORGE_UPLOAD_ROOT", "storage/uploads")
     workspace_root: Path = _path_from_env("REPOFORGE_WORKSPACE_ROOT", "storage/workspaces")
@@ -36,4 +38,3 @@ class Settings:
 
 
 settings = Settings()
-

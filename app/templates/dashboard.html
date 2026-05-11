@@ -4,7 +4,7 @@
 {% block eyebrow %}Operations{% endblock %}
 {% block page_title %}Dashboard{% endblock %}
 {% block actions %}
-  <a class="btn btn-primary" href="/bundles/new">New Bundle</a>
+  {% if can('operator') %}<a class="btn btn-primary" href="/bundles/new">New Bundle</a>{% endif %}
   <a class="btn btn-secondary" href="/build-jobs">Build Queue</a>
 {% endblock %}
 {% block content %}
@@ -12,8 +12,10 @@
     <h2>Signed repository bundles for controlled Linux environments</h2>
     <p>Track sources, package requests, custom RPMs, signing keys, build logs, and ISO artifacts from one operations console.</p>
     <div class="hero-actions">
-      <a class="btn btn-primary" href="/bundles/new">New Bundle</a>
-      <a class="btn btn-secondary" href="/system">System Check</a>
+      {% if can('operator') %}
+        <a class="btn btn-primary" href="/bundles/new">New Bundle</a>
+        <a class="btn btn-secondary" href="/system">System Check</a>
+      {% endif %}
     </div>
   </section>
 
@@ -61,7 +63,7 @@
     <div class="panel">
       <div class="panel-header">
         <h2>System Readiness</h2>
-        <a href="/system">Inspect</a>
+        {% if can('operator') %}<a href="/system">Inspect</a>{% endif %}
       </div>
       <table class="data-table compact">
         <thead><tr><th>Tool</th><th>Status</th><th>Version</th></tr></thead>

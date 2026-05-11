@@ -30,17 +30,19 @@
 
       <nav class="nav-list">
         {% set nav_items = [
-          ('dashboard', 'Dashboard', '/'),
-          ('bundles', 'Bundles', '/bundles'),
-          ('repo_sources', 'Repository Sources', '/repo-sources'),
-          ('custom_rpms', 'Custom RPMs', '/custom-rpms'),
-          ('keys', 'GPG Keys', '/keys'),
-          ('build_jobs', 'Build Jobs', '/build-jobs'),
-          ('artifacts', 'Artifacts', '/artifacts'),
-          ('system', 'System', '/system'),
-          ('settings', 'Settings', '/settings')
+          ('dashboard', 'Dashboard', '/', 'user'),
+          ('bundles', 'Bundles', '/bundles', 'user'),
+          ('repo_sources', 'Repository Sources', '/repo-sources', 'operator'),
+          ('custom_rpms', 'Custom RPMs', '/custom-rpms', 'operator'),
+          ('keys', 'GPG Keys', '/keys', 'user'),
+          ('build_jobs', 'Build Jobs', '/build-jobs', 'user'),
+          ('artifacts', 'Artifacts', '/artifacts', 'user'),
+          ('system', 'System', '/system', 'operator'),
+          ('settings', 'Settings', '/settings', 'operator'),
+          ('users', 'Users', '/admin/users', 'admin'),
+          ('auth', 'Authentication', '/admin/auth', 'admin')
         ] %}
-        {% for key, label, href in nav_items %}
+        {% for key, label, href, role in nav_items if can(role) %}
           <a class="nav-item{% if current_section == key %} is-active{% endif %}" href="{{ href }}">
             <span class="nav-dot" aria-hidden="true"></span>
             <span>{{ label }}</span>
@@ -61,6 +63,10 @@
           <h1>{% block page_title %}Dashboard{% endblock %}</h1>
         </div>
         <div class="topbar-actions">
+          {% if current_user %}
+            <span class="user-chip">{{ current_user.name }} &middot; {{ current_user.role }}</span>
+            <a class="btn btn-secondary" href="/logout">Logout</a>
+          {% endif %}
           <button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle dark mode" title="Toggle dark mode">Theme</button>
           {% block actions %}{% endblock %}
         </div>

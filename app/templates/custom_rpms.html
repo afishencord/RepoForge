@@ -21,6 +21,7 @@
             <td>{% set status = rpm.dependency_status | default('not checked') %}{% include "partials/status_badge.html" %}</td>
             <td class="row-actions">
               <form class="inline-form" method="post" action="/custom-rpms/{{ rpm.id }}/toggle-dependencies">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                 <button type="submit">{{ 'Disable' if rpm.resolve_dependencies else 'Enable' }} resolve</button>
               </form>
             </td>

@@ -20,7 +20,13 @@
             <td>{{ 'Yes' if source.enabled else 'No' }}</td>
             <td>{% set status = source.status %}{% include "partials/status_badge.html" %}</td>
             <td>{{ source.last_sync_at | default('-') }}</td>
-            <td class="row-actions"><a href="/repo-sources/{{ source.id }}/sync">Sync</a><a href="/repo-sources/{{ source.id }}/edit">Edit</a></td>
+            <td class="row-actions">
+              <form class="inline-form" method="post" action="/repo-sources/{{ source.id }}/sync">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button type="submit">Sync</button>
+              </form>
+              <a href="/repo-sources/{{ source.id }}/edit">Edit</a>
+            </td>
           </tr>
         {% else %}
           {% set colspan = 7 %}{% set empty_title = 'No repository sources' %}{% set empty_message = 'Add Red Hat, Fedora, Docker, PyPI-style, or generic Yum/DNF sources.' %}{% include "partials/table_empty.html" %}

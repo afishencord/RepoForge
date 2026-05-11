@@ -3,7 +3,7 @@
 {% block title %}GPG Keys - RepoForge{% endblock %}
 {% block eyebrow %}Signing{% endblock %}
 {% block page_title %}GPG Keys{% endblock %}
-{% block actions %}<a class="btn btn-primary" href="/keys/new">Generate Key</a>{% endblock %}
+{% block actions %}{% if can('operator') %}<a class="btn btn-primary" href="/keys/new">Generate Key</a>{% endif %}{% endblock %}
 {% block content %}
   <section class="panel">
     <table class="data-table">

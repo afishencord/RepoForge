@@ -17,6 +17,7 @@
   {% include "partials/tabs.html" %}
 
   <form class="form-panel" method="post" action="{{ form_action | default('/bundles/' ~ bundle.id if is_edit else '/bundles') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <section id="identity" class="form-section">
       <h2>Identity</h2>
       <div class="form-grid">

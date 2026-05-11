@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% from "partials/form_fields.html" import text_input, checkbox, select_input %}
+{% set active_nav = "auth" %}
+{% block title %}Authentication - RepoForge{% endblock %}
+{% block eyebrow %}Administration{% endblock %}
+{% block page_title %}Authentication{% endblock %}
+{% block content %}
+  <form class="form-panel" method="post" action="/admin/auth/ldap">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <section class="form-section">
+      <h2>LDAP</h2>
+      <div class="form-grid">
+        {{ checkbox('enabled', 'Enabled', ldap_provider.enabled if ldap_provider else False) }}
+        {{ checkbox('verify_tls', 'Verify TLS certificates', ldap_config.verify_tls | default(True)) }}
+        {{ text_input('server_uri', 'Server URI', ldap_config.server_uri | default(''), placeholder='ldaps://ldap.example.com') }}
+        {{ text_input('bind_dn', 'Service Bind DN', ldap_config.bind_dn | default(''), placeholder='cn=repoforge,ou=svc,dc=example,dc=com') }}
+        {{ text_input('bind_password', 'Service Bind Password', '', 'password', help_text='Leave blank to keep the saved secret.') }}
+        {{ text_input('user_base_dn', 'User Search Base DN', ldap_config.user_base_dn | default(''), placeholder='ou=users,dc=example,dc=com') }}
+        {{ text_input('user_filter', 'User Search Filter', ldap_config.user_filter | default('(uid={username})')) }}
+        {{ text_input('user_dn_template', 'Direct User DN Template', ldap_config.user_dn_template | default(''), placeholder='uid={username},ou=users,dc=example,dc=com') }}
+        {{ text_input('username_attribute', 'Username Attribute', ldap_config.username_attribute | default('uid')) }}
+        {{ text_input('email_attribute', 'Email Attribute', ldap_config.email_attribute | default('mail')) }}
+        {{ text_input('display_name_attribute', 'Display Name Attribute', ldap_config.display_name_attribute | default('cn')) }}
+        {{ text_input('group_attribute', 'Group Attribute', ldap_config.group_attribute | default('memberOf')) }}
+      </div>
+    </section>
+    {% set provider = ldap_provider %}
+    {% include "admin/role_mappings.html" %}
+    <div class="form-actions">
+      <button class="btn btn-primary" type="submit">Save LDAP</button>
+    </div>
+  </form>
+
+  <form class="form-panel" method="post" action="/admin/auth/adfs">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <section class="form-section">
+      <h2>Microsoft ADFS OIDC</h2>
+      <div class="form-grid">
+        {{ checkbox('enabled', 'Enabled', adfs_provider.enabled if adfs_provider else False) }}
+        {{ text_input('authorization_endpoint', 'Authorization Endpoint', adfs_config.authorization_endpoint | default(''), placeholder='https://adfs.example.com/adfs/oauth2/authorize') }}
+        {{ text_input('token_endpoint', 'Token Endpoint', adfs_config.token_endpoint | default(''), placeholder='https://adfs.example.com/adfs/oauth2/token') }}
+        {{ text_input('userinfo_endpoint', 'UserInfo Endpoint', adfs_config.userinfo_endpoint | default('')) }}
+        {{ text_input('jwks_uri', 'JWKS URI', adfs_config.jwks_uri | default('')) }}
+        {{ text_input('issuer', 'Issuer', adfs_config.issuer | default('')) }}
+        {{ text_input('client_id', 'Client ID', adfs_config.client_id | default('')) }}
+        {{ text_input('client_secret', 'Client Secret', '', 'password', help_text='Leave blank to keep the saved secret.') }}
+        {{ text_input('scopes', 'Scopes', adfs_config.scopes | default('openid email profile')) }}
+        {{ text_input('username_claim', 'Username Claim', adfs_config.username_claim | default('upn')) }}
+        {{ text_input('email_claim', 'Email Claim', adfs_config.email_claim | default('email')) }}
+        {{ text_input('display_name_claim', 'Display Name Claim', adfs_config.display_name_claim | default('name')) }}
+        {{ text_input('groups_claim', 'Groups Claim', adfs_config.groups_claim | default('groups')) }}
+      </div>
+    </section>
+    {% set provider = adfs_provider %}
+    {% include "admin/role_mappings.html" %}
+    <div class="form-actions">
+      <button class="btn btn-primary" type="submit">Save ADFS</button>
+    </div>
+  </form>
+{% endblock %}

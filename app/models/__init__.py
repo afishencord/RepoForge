@@ -210,6 +210,81 @@ class BuildJob(Base):
         return f"{seconds}s"
 
 
+class User(TimestampMixin, Base):
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    username: Mapped[str] = mapped_column(String(120), nullable=False, unique=True, index=True)
+    email: Mapped[str] = mapped_column(String(240), default="", nullable=False, index=True)
+    display_name: Mapped[str] = mapped_column(String(160), default="", nullable=False)
+    password_hash: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    role: Mapped[str] = mapped_column(String(32), default="user", nullable=False)
+    auth_source: Mapped[str] = mapped_column(String(40), default="local", nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    identities: Mapped[list["ExternalIdentity"]] = relationship(back_populates="user", cascade="all, delete-orphan", lazy="selectin")
+
+    @property
+    def name(self) -> str:
+        return self.display_name or self.username
+
+
+class AuthProvider(TimestampMixin, Base):
+    __tablename__ = "auth_providers"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    provider_type: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False, unique=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    config_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    secret_config_json: Mapped[str] = mapped_column(Text, default="", nullable=False)
+
+    identities: Mapped[list["ExternalIdentity"]] = relationship(back_populates="provider", cascade="all, delete-orphan", lazy="selectin")
+    role_mappings: Mapped[list["RoleMapping"]] = relationship(back_populates="provider", cascade="all, delete-orphan", lazy="selectin")
+
+    @property
+    def config(self) -> dict[str, Any]:
+        return json_dict(self.config_json)
+
+
+class ExternalIdentity(TimestampMixin, Base):
+    __tablename__ = "external_identities"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    provider_id: Mapped[int] = mapped_column(ForeignKey("auth_providers.id", ondelete="CASCADE"), nullable=False, index=True)
+    subject: Mapped[str] = mapped_column(String(240), nullable=False, index=True)
+    username: Mapped[str] = mapped_column(String(120), default="", nullable=False)
+    email: Mapped[str] = mapped_column(String(240), default="", nullable=False)
+    claims_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+
+    user: Mapped[User] = relationship(back_populates="identities")
+    provider: Mapped[AuthProvider] = relationship(back_populates="identities")
+
+
+class RoleMapping(TimestampMixin, Base):
+    __tablename__ = "role_mappings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    provider_id: Mapped[int] = mapped_column(ForeignKey("auth_providers.id", ondelete="CASCADE"), nullable=False, index=True)
+    external_group: Mapped[str] = mapped_column(String(240), nullable=False)
+    role: Mapped[str] = mapped_column(String(32), default="user", nullable=False)
+
+    provider: Mapped[AuthProvider] = relationship(back_populates="role_mappings")
+
+
+class AuditEvent(Base):
+    __tablename__ = "audit_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    actor_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    event_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    target: Mapped[str] = mapped_column(String(240), default="", nullable=False)
+    detail_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
 class Artifact(Base):
     __tablename__ = "artifacts"
 
@@ -260,6 +335,16 @@ def json_list(value: str | None) -> list[str]:
     except json.JSONDecodeError:
         return []
     return parsed if isinstance(parsed, list) else []
+
+
+def json_dict(value: str | None) -> dict[str, Any]:
+    if not value:
+        return {}
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
 
 
 def json_dump(value: Any) -> str:

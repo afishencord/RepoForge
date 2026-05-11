@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% from "partials/form_fields.html" import text_input, select_input, checkbox %}
+{% set active_nav = "users" %}
+{% block title %}Users - RepoForge{% endblock %}
+{% block eyebrow %}Administration{% endblock %}
+{% block page_title %}Users{% endblock %}
+{% block content %}
+  <form class="form-panel" method="post" action="/admin/users">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <section class="form-section">
+      <h2>Add Local User</h2>
+      <div class="form-grid">
+        {{ text_input('username', 'Username', '', required=True) }}
+        {{ text_input('password', 'Password', '', 'password', required=True) }}
+        {{ text_input('email', 'Email', '', 'email') }}
+        {{ text_input('display_name', 'Display Name', '') }}
+        {{ select_input('role', 'Role', role_options, 'user') }}
+        {{ checkbox('is_active', 'Active', True) }}
+      </div>
+    </section>
+    <div class="form-actions">
+      <button class="btn btn-primary" type="submit">Create User</button>
+    </div>
+  </form>
+
+  <section class="panel">
+    <div class="panel-header"><h2>Accounts</h2><span class="muted">{{ users | length }} users</span></div>
+    <table class="data-table">
+      <thead><tr><th>User</th><th>Source</th><th>Last Login</th><th>Update</th></tr></thead>
+      <tbody>
+        {% for user in users %}
+          <tr>
+            <td>
+              <strong>{{ user.username }}</strong>
+              <small>{{ user.email or '-' }} / {{ user.display_name or '-' }}</small>
+            </td>
+            <td>{{ user.auth_source }} {% set status = 'active' if user.is_active else 'disabled' %}{% include "partials/status_badge.html" %}</td>
+            <td>{{ user.last_login_at | default('-') }}</td>
+            <td>
+              <form class="inline-grid-form" method="post" action="/admin/users/{{ user.id }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <input type="email" name="email" value="{{ user.email }}" placeholder="email">
+                <input type="text" name="display_name" value="{{ user.display_name }}" placeholder="display name">
+                <select name="role">
+                  {% for role in role_options %}
+                    <option value="{{ role }}" {% if user.role == role %}selected{% endif %}>{{ role }}</option>
+                  {% endfor %}
+                </select>
+                <input type="password" name="password" placeholder="new password">
+                <label class="compact-check"><input type="checkbox" name="is_active" value="true" {% if user.is_active %}checked{% endif %}> Active</label>
+                <button class="btn btn-secondary" type="submit">Save</button>
+              </form>
+            </td>
+          </tr>
+        {% else %}
+          {% set colspan = 4 %}{% set empty_title = 'No users' %}{% set empty_message = 'Create a local user or enable external auth.' %}{% include "partials/table_empty.html" %}
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+{% endblock %}

@@ -3,7 +3,7 @@
 {% block title %}Bundles - RepoForge{% endblock %}
 {% block eyebrow %}Package Bundles{% endblock %}
 {% block page_title %}Bundles{% endblock %}
-{% block actions %}<a class="btn btn-primary" href="/bundles/new">New Bundle</a>{% endblock %}
+{% block actions %}{% if can('operator') %}<a class="btn btn-primary" href="/bundles/new">New Bundle</a>{% endif %}{% endblock %}
 {% block content %}
   {% set reset_href = '/bundles' %}
   {% set search_placeholder = 'Filter by name, OS, architecture' %}
@@ -23,7 +23,15 @@
             <td>{% set status = bundle.status %}{% include "partials/status_badge.html" %}</td>
             <td>{{ bundle.repo_source_count | default(0) }}</td>
             <td>{{ bundle.last_build_at | default('-') }}</td>
-            <td class="row-actions"><a href="/bundles/{{ bundle.id }}/edit">Edit</a><a href="/bundles/{{ bundle.id }}/build">Build</a></td>
+            <td class="row-actions">
+              {% if can('operator') %}
+                <a href="/bundles/{{ bundle.id }}/edit">Edit</a>
+                <form class="inline-form" method="post" action="/bundles/{{ bundle.id }}/build">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                  <button type="submit">Build</button>
+                </form>
+              {% endif %}
+            </td>
           </tr>
         {% else %}
           {% set colspan = 7 %}{% set empty_title = 'No bundles defined' %}{% set empty_message = 'Create a bundle to select repositories, packages, custom RPMs, and ISO output options.' %}{% include "partials/table_empty.html" %}

@@ -21,10 +21,13 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, expi
 
 def init_db() -> None:
     from . import models  # noqa: F401
+    from .services.auth_service import seed_default_admin
 
     settings.ensure_directories()
     Base.metadata.create_all(bind=engine)
     _ensure_sqlite_schema()
+    with SessionLocal() as db:
+        seed_default_admin(db)
 
 
 def _ensure_sqlite_schema() -> None:

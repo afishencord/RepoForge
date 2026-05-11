@@ -7,6 +7,7 @@
 {% block page_title %}{{ 'Edit Source' if is_edit else 'New Repository Source' }}{% endblock %}
 {% block content %}
   <form class="form-panel" method="post" action="{{ form_action | default('/repo-sources/' ~ repo_source.id if is_edit else '/repo-sources') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <section class="form-section">
       <h2>Source Details</h2>
       <div class="form-grid">
