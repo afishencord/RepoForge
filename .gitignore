@@ -18,6 +18,8 @@ storage/**
 !storage/artifacts/.gitkeep
 !storage/keys/
 !storage/keys/.gitkeep
+!storage/tls/
+!storage/tls/.gitkeep
 
 .env
 *.db

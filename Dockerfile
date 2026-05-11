@@ -10,6 +10,7 @@ RUN dnf -y update && \
       rpm \
       rpm-build \
       gnupg2 \
+      openssl \
       xorriso \
       genisoimage \
       findutils \
@@ -23,7 +24,7 @@ COPY requirements.txt .
 RUN python3 -m pip install --no-cache-dir -r requirements.txt
 
 COPY . .
-RUN mkdir -p storage/uploads storage/workspaces storage/artifacts storage/keys
+RUN mkdir -p storage/uploads storage/workspaces storage/artifacts storage/keys storage/tls
 
-EXPOSE 8000
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+EXPOSE 80 443
+CMD ["python3", "-m", "app.server"]

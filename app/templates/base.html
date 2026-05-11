@@ -50,9 +50,21 @@
         {% endfor %}
       </nav>
 
-      <div class="sidebar-footer">
-        <span>Builder</span>
-        {% include "partials/status_badge.html" with context %}
+      <div class="sidebar-bottom">
+        {% if current_user %}
+          <div class="sidebar-account">
+            <div>
+              <span class="sidebar-account-label">Signed in</span>
+              <strong>{{ current_user.name }}</strong>
+              <small>{{ current_user.role }}</small>
+            </div>
+            <a href="/logout">Logout</a>
+          </div>
+        {% endif %}
+        <div class="sidebar-footer">
+          <span>Builder</span>
+          {% include "partials/status_badge.html" with context %}
+        </div>
       </div>
     </aside>
 
@@ -63,10 +75,6 @@
           <h1>{% block page_title %}Dashboard{% endblock %}</h1>
         </div>
         <div class="topbar-actions">
-          {% if current_user %}
-            <span class="user-chip">{{ current_user.name }} &middot; {{ current_user.role }}</span>
-            <a class="btn btn-secondary" href="/logout">Logout</a>
-          {% endif %}
           <button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle dark mode" title="Toggle dark mode">Theme</button>
           {% block actions %}{% endblock %}
         </div>

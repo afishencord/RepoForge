@@ -33,8 +33,25 @@ docker compose up --build -d
 Open:
 
 ```text
-http://127.0.0.1:8000
+http://127.0.0.1
 ```
+
+RepoForge listens on standard HTTP and HTTPS ports in Docker. If no certificate exists, Compose auto-generates a self-signed certificate for local testing. Browsers will show a certificate warning for that generated certificate, and curl needs `-k` unless you trust it locally.
+
+To use your own certificate, place the certificate and key at:
+
+```text
+storage/tls/repoforge.crt
+storage/tls/repoforge.key
+```
+
+Then restart Compose and open:
+
+```text
+https://127.0.0.1
+```
+
+When TLS is enabled, port 443 serves the application and port 80 redirects to HTTPS.
 
 Default local admin credentials:
 

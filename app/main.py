@@ -103,7 +103,7 @@ async def require_authenticated_session(request: Request, call_next):  # type: i
     return await call_next(request)
 
 
-app.add_middleware(SessionMiddleware, secret_key=settings.secret_key, same_site="lax", https_only=False)
+app.add_middleware(SessionMiddleware, secret_key=settings.secret_key, same_site="lax", https_only=settings.session_https_only)
 
 
 def render(request: Request, template_name: str, context: dict[str, Any] | None = None, *, status_code: int = 200):
