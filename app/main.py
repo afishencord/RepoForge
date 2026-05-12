@@ -9,7 +9,7 @@ import re
 import secrets
 import shutil
 import traceback
-from typing import Any
+from typing import Any, Optional
 
 from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse, RedirectResponse
@@ -106,7 +106,7 @@ async def require_authenticated_session(request: Request, call_next):  # type: i
 app.add_middleware(SessionMiddleware, secret_key=settings.secret_key, same_site="lax", https_only=settings.session_https_only)
 
 
-def render(request: Request, template_name: str, context: dict[str, Any] | None = None, *, status_code: int = 200):
+def render(request: Request, template_name: str, context: Optional[dict[str, Any]] = None, *, status_code: int = 200):
     data = dict(context or {})
     data.setdefault("request", request)
     data.setdefault("system_status", quick_system_status())
@@ -117,7 +117,7 @@ def render(request: Request, template_name: str, context: dict[str, Any] | None 
     return templates.TemplateResponse(request, template_name, data, status_code=status_code)
 
 
-def redirect(url: str, *, notice: str | None = None, level: str = "info") -> RedirectResponse:
+def redirect(url: str, *, notice: Optional[str] = None, level: str = "info") -> RedirectResponse:
     if notice:
         joiner = "&" if "?" in url else "?"
         url = f"{url}{joiner}notice={url_quote(notice)}&level={url_quote(level)}"
@@ -200,7 +200,7 @@ def query_all(db: Session, model: type[Any], order_by: Any) -> list[Any]:
     return list(db.scalars(select(model).order_by(order_by)).all())
 
 
-def filter_records(records: list[Any], q: str | None, fields: tuple[str, ...]) -> list[Any]:
+def filter_records(records: list[Any], q: Optional[str], fields: tuple[str, ...]) -> list[Any]:
     if not q:
         return records
     needle = q.lower()
@@ -213,7 +213,7 @@ def filter_records(records: list[Any], q: str | None, fields: tuple[str, ...]) -
 
 
 @app.get("/login")
-def login_page(request: Request, next: str | None = None, db: Session = Depends(get_db)):
+def login_page(request: Request, next: Optional[str] = None, db: Session = Depends(get_db)):
     if getattr(request.state, "current_user", None):
         return redirect(next or "/")
     return render(
@@ -255,7 +255,7 @@ async def login_ldap(request: Request, db: Session = Depends(get_db)):
 
 
 @app.get("/auth/adfs/login")
-def adfs_login(request: Request, next: str | None = None, db: Session = Depends(get_db)):
+def adfs_login(request: Request, next: Optional[str] = None, db: Session = Depends(get_db)):
     state = secrets.token_urlsafe(24)
     request.session["oidc_state"] = state
     request.session["oidc_next"] = safe_next(next or "/")
@@ -268,7 +268,7 @@ def adfs_login(request: Request, next: str | None = None, db: Session = Depends(
 
 
 @app.get("/auth/adfs/callback")
-def adfs_callback(request: Request, code: str | None = None, state: str | None = None, db: Session = Depends(get_db)):
+def adfs_callback(request: Request, code: Optional[str] = None, state: Optional[str] = None, db: Session = Depends(get_db)):
     expected_state = request.session.pop("oidc_state", "")
     next_url = safe_next(str(request.session.pop("oidc_next", "/")))
     if not code or not state or not expected_state or not secrets.compare_digest(state, expected_state):
@@ -319,7 +319,7 @@ def healthz() -> dict[str, str]:
 
 
 @app.get("/bundles")
-def bundles(request: Request, q: str | None = None, db: Session = Depends(get_db)):
+def bundles(request: Request, q: Optional[str] = None, db: Session = Depends(get_db)):
     records = query_all(db, Bundle, Bundle.created_at.desc())
     return render(request, "bundles/list.html", {"bundles": filter_records(records, q, ("name", "target_os", "architecture", "status")), "q": q or ""})
 
@@ -341,7 +341,7 @@ async def create_bundle(request: Request, db: Session = Depends(get_db), _curren
 
 
 @app.get("/bundles/{bundle_id}")
-def bundle_detail(request: Request, bundle_id: int, tab: str | None = None, db: Session = Depends(get_db)):
+def bundle_detail(request: Request, bundle_id: int, tab: Optional[str] = None, db: Session = Depends(get_db)):
     bundle = get_or_404(db, Bundle, bundle_id)
     latest_build = db.scalars(select(BuildJob).where(BuildJob.bundle_id == bundle.id).order_by(BuildJob.id.desc()).limit(1)).first()
     manifest_text = ""
@@ -432,7 +432,7 @@ def start_bundle_build(bundle_id: int, background_tasks: BackgroundTasks, db: Se
 
 
 @app.get("/repo-sources")
-def repo_sources(request: Request, q: str | None = None, db: Session = Depends(get_db), _current: User = Depends(require_operator)):
+def repo_sources(request: Request, q: Optional[str] = None, db: Session = Depends(get_db), _current: User = Depends(require_operator)):
     records = query_all(db, RepoSource, RepoSource.created_at.desc())
     return render(
         request,
@@ -630,7 +630,7 @@ def download_public_key(key_id: int, db: Session = Depends(get_db)):
 
 
 @app.get("/build-jobs")
-def build_jobs(request: Request, q: str | None = None, db: Session = Depends(get_db)):
+def build_jobs(request: Request, q: Optional[str] = None, db: Session = Depends(get_db)):
     records = list(db.scalars(select(BuildJob).order_by(BuildJob.id.desc())).all())
     return render(request, "build_jobs/list.html", {"build_jobs": filter_records(records, q, ("name", "status", "stage")), "q": q or ""})
 
@@ -846,7 +846,7 @@ async def update_adfs_provider(request: Request, db: Session = Depends(get_db), 
     return redirect("/admin/auth", notice="ADFS settings saved", level="success")
 
 
-def bundle_form_context(db: Session, bundle: Bundle | None = None) -> dict[str, Any]:
+def bundle_form_context(db: Session, bundle: Optional[Bundle] = None) -> dict[str, Any]:
     sources = query_all(db, RepoSource, RepoSource.name.asc())
     context: dict[str, Any] = {
         "available_repo_sources": sources,
@@ -864,7 +864,7 @@ def bundle_form_context(db: Session, bundle: Bundle | None = None) -> dict[str, 
     return context
 
 
-def repo_source_form_context(source: RepoSource | None = None) -> dict[str, Any]:
+def repo_source_form_context(source: Optional[RepoSource] = None) -> dict[str, Any]:
     context: dict[str, Any] = {
         "source_type_options": ["redhat9", "fedora44", "docker_ce", "docker_ee", "python", "generic_yum", "custom"],
         "sync_policy_options": ["manual", "scheduled", "disabled"],
@@ -925,7 +925,7 @@ def required_text(form: Any, key: str) -> str:
     return value
 
 
-def normalize_tab(tab: str | None) -> str:
+def normalize_tab(tab: Optional[str]) -> str:
     mapping = {"custom-rpms": "custom_rpms"}
     return mapping.get(tab or "overview", tab or "overview")
 
@@ -946,7 +946,7 @@ def remote_entitlement_check(worker_config: Any, repo_ids: list[str]) -> None:
         raise BuilderValidationError(f"Remote RHEL worker validation failed: {exc}") from exc
 
 
-def tool_view_models(limit: int | None = None) -> list[dict[str, str]]:
+def tool_view_models(limit: Optional[int] = None) -> list[dict[str, str]]:
     checks = check_system_tools()
     rows = [
         {
