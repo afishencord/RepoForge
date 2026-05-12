@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Table, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -51,10 +51,10 @@ class Bundle(TimestampMixin, Base):
     include_validation_scripts: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     include_install_scripts: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     builder_mode: Mapped[str] = mapped_column(String(40), default="container", nullable=False)
-    last_built_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    iso_artifact_path: Mapped[str | None] = mapped_column(Text)
-    manifest_path: Mapped[str | None] = mapped_column(Text)
-    checksum_path: Mapped[str | None] = mapped_column(Text)
+    last_built_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    iso_artifact_path: Mapped[Optional[str]] = mapped_column(Text)
+    manifest_path: Mapped[Optional[str]] = mapped_column(Text)
+    checksum_path: Mapped[Optional[str]] = mapped_column(Text)
 
     repo_sources: Mapped[list["RepoSource"]] = relationship(
         secondary=bundle_repo_sources,
@@ -99,7 +99,7 @@ class RepoSource(TimestampMixin, Base):
     verify_ssl: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     status: Mapped[str] = mapped_column(String(32), default="not_checked", nullable=False)
     notes: Mapped[str] = mapped_column(Text, default="", nullable=False)
-    last_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_sync_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
     bundles: Mapped[list[Bundle]] = relationship(secondary=bundle_repo_sources, back_populates="repo_sources")
 
@@ -165,7 +165,7 @@ class GPGKey(Base):
     private_key_path: Mapped[str] = mapped_column(Text, default="", nullable=False)
     associated_repo: Mapped[str] = mapped_column(String(160), default="repoforge-custom", nullable=False)
     status: Mapped[str] = mapped_column(String(32), default="active", nullable=False)
-    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
 
     @property
@@ -181,8 +181,8 @@ class BuildJob(Base):
     status: Mapped[str] = mapped_column(String(32), default="queued", nullable=False)
     name: Mapped[str] = mapped_column(String(160), default="", nullable=False)
     stage: Mapped[str] = mapped_column(String(80), default="queued", nullable=False)
-    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     log_path: Mapped[str] = mapped_column(Text, default="", nullable=False)
     error_message: Mapped[str] = mapped_column(Text, default="", nullable=False)
     created_by: Mapped[str] = mapped_column(String(120), default="local", nullable=False)
@@ -221,7 +221,7 @@ class User(TimestampMixin, Base):
     role: Mapped[str] = mapped_column(String(32), default="user", nullable=False)
     auth_source: Mapped[str] = mapped_column(String(40), default="local", nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_login_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
     identities: Mapped[list["ExternalIdentity"]] = relationship(back_populates="user", cascade="all, delete-orphan", lazy="selectin")
 
@@ -278,7 +278,7 @@ class AuditEvent(Base):
     __tablename__ = "audit_events"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    actor_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    actor_user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     event_type: Mapped[str] = mapped_column(String(80), nullable=False)
     target: Mapped[str] = mapped_column(String(240), default="", nullable=False)
     detail_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
@@ -290,7 +290,7 @@ class Artifact(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     bundle_id: Mapped[int] = mapped_column(ForeignKey("bundles.id", ondelete="CASCADE"), nullable=False, index=True)
-    build_job_id: Mapped[int | None] = mapped_column(ForeignKey("build_jobs.id", ondelete="SET NULL"))
+    build_job_id: Mapped[Optional[int]] = mapped_column(ForeignKey("build_jobs.id", ondelete="SET NULL"))
     artifact_type: Mapped[str] = mapped_column(String(32), default="iso", nullable=False)
     name: Mapped[str] = mapped_column(String(240), nullable=False)
     path: Mapped[str] = mapped_column(Text, nullable=False)
@@ -299,7 +299,7 @@ class Artifact(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
 
     bundle: Mapped[Bundle] = relationship(back_populates="artifacts")
-    build_job: Mapped[BuildJob | None] = relationship(back_populates="artifacts")
+    build_job: Mapped[Optional[BuildJob]] = relationship(back_populates="artifacts")
 
     @property
     def bundle_name(self) -> str:

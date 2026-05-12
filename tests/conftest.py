@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 import re
+import sys
 import tempfile
 import uuid
 
@@ -12,6 +13,8 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 TEST_STORAGE = ROOT / "storage" / "test-runtime"
 TEST_TMP = TEST_STORAGE / "tmp"
+
+sys.path.insert(0, str(ROOT))
 
 TEST_TMP.mkdir(parents=True, exist_ok=True)
 
