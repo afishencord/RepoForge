@@ -7,7 +7,7 @@ from collections.abc import Generator
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
-from .config import settings
+from .config import PROJECT_ROOT, settings
 
 
 class Base(DeclarativeBase):
@@ -20,14 +20,50 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, expi
 
 
 def init_db() -> None:
+    settings.ensure_directories()
+    if settings.auto_migrate:
+        run_migrations()
+    else:
+        seed_database()
+
+
+def alembic_config():
+    from alembic.config import Config
+
+    config = Config(str(PROJECT_ROOT / "alembic.ini"))
+    config.set_main_option("script_location", str(PROJECT_ROOT / "migrations"))
+    config.set_main_option("sqlalchemy.url", settings.database_url)
+    return config
+
+
+def run_migrations() -> None:
+    from alembic import command
+
+    settings.ensure_directories()
+    config = alembic_config()
+    if _schema_exists_without_alembic_version():
+        from . import models  # noqa: F401
+
+        Base.metadata.create_all(bind=engine)
+        _ensure_sqlite_schema()
+        command.stamp(config, "head")
+    else:
+        command.upgrade(config, "head")
+    seed_database()
+
+
+def seed_database() -> None:
     from . import models  # noqa: F401
     from .services.auth_service import seed_default_admin
 
-    settings.ensure_directories()
-    Base.metadata.create_all(bind=engine)
-    _ensure_sqlite_schema()
     with SessionLocal() as db:
         seed_default_admin(db)
+
+
+def _schema_exists_without_alembic_version() -> bool:
+    inspector = inspect(engine)
+    tables = set(inspector.get_table_names())
+    return bool(tables - {"alembic_version"}) and "alembic_version" not in tables
 
 
 def _ensure_sqlite_schema() -> None:

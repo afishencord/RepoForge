@@ -2,7 +2,7 @@
 
 RepoForge is a web application for building signed, ISO-based package bundles for air-gapped Linux environments. It gives systems engineers a single operations console for defining repository sources, selecting packages, uploading custom RPMs, generating signing keys, tracking build jobs, and publishing mountable ISO artifacts that can be carried into disconnected environments.
 
-The application is built with FastAPI, SQLAlchemy, SQLite, Jinja2 templates, and a Fedora-based builder container that includes the Linux repository tooling needed for DNF/Yum repository assembly.
+The application is built with FastAPI, SQLAlchemy, PostgreSQL, Jinja2 templates, and host-installed Linux repository tooling for DNF/Yum repository assembly.
 
 ## Features
 
@@ -20,38 +20,61 @@ The application is built with FastAPI, SQLAlchemy, SQLite, Jinja2 templates, and
 - Artifact registry with ISO download and manifest access
 - System page for builder dependency inspection
 - Local authentication with Admin, Operator, and User roles plus configurable LDAP and Microsoft ADFS OIDC sign-in
-- Docker Compose deployment with persisted local storage
+- RHEL systemd deployment with a single RepoForge executable and a PostgreSQL container
 
 ## Preferred Deployment
 
-Docker Compose is the preferred way to run RepoForge because the container image includes the system tools expected by the builder pipeline.
+RepoForge is intended to run on a RHEL 8 or RHEL 9 server as a local executable managed by systemd. Docker Compose is used only for PostgreSQL.
 
 ```bash
-docker compose up --build -d
+docker compose up -d
+docker compose ps
 ```
+
+Create the service user and runtime directories:
+
+```bash
+sudo useradd --system --home-dir /var/lib/repoforge --shell /sbin/nologin repoforge
+sudo install -d -o repoforge -g repoforge -m 0750 /etc/repoforge /var/lib/repoforge
+sudo install -d -o repoforge -g repoforge -m 0750 /var/lib/repoforge/uploads /var/lib/repoforge/workspaces /var/lib/repoforge/artifacts /var/lib/repoforge/keys /var/lib/repoforge/tls
+```
+
+Build or copy the binary to the server. Build on RHEL 8 x86_64, or an equivalent oldest-supported build host, for the broadest RHEL 8/9 compatibility:
+
+```bash
+bash scripts/build-binary.sh
+sudo install -m 0755 dist/repoforge /usr/local/bin/repoforge
+```
+
+Install the environment and systemd unit templates:
+
+```bash
+sudo install -m 0640 -o root -g repoforge packaging/repoforge.env /etc/repoforge/repoforge.env
+sudo install -m 0644 packaging/repoforge.service /etc/systemd/system/repoforge.service
+```
+
+Edit `/etc/repoforge/repoforge.env` before first start. At minimum, set strong values for `REPOFORGE_SECRET_KEY`, `REPOFORGE_AUTH_SECRET_KEY`, and the PostgreSQL password. The default database URL format is:
+
+```text
+REPOFORGE_DATABASE_URL=postgresql+psycopg://repoforge:repoforge-change-me@127.0.0.1:5432/repoforge
+```
+
+Run migrations and start the service:
+
+```bash
+sudo -u repoforge /usr/local/bin/repoforge migrate
+sudo systemctl daemon-reload
+sudo systemctl enable --now repoforge
+sudo systemctl status repoforge
+```
+
+RepoForge listens on standard HTTP and HTTPS ports. The systemd unit grants only `CAP_NET_BIND_SERVICE` so the `repoforge` user can bind ports 80 and 443 without running the service as root. If no certificate exists and `REPOFORGE_TLS_AUTO_GENERATE=1`, RepoForge generates a self-signed certificate under `/var/lib/repoforge/tls`.
 
 Open:
 
 ```text
-http://127.0.0.1
-```
-
-RepoForge listens on standard HTTP and HTTPS ports in Docker. If no certificate exists, Compose auto-generates a self-signed certificate for local testing. Browsers will show a certificate warning for that generated certificate, and curl needs `-k` unless you trust it locally.
-
-To use your own certificate, place the certificate and key at:
-
-```text
-storage/tls/repoforge.crt
-storage/tls/repoforge.key
-```
-
-Then restart Compose and open:
-
-```text
 https://127.0.0.1
 ```
-
-When TLS is enabled, port 443 serves the application and port 80 redirects to HTTPS.
 
 Default local admin credentials:
 
@@ -60,35 +83,34 @@ Username: admin
 Password: admin123!
 ```
 
-Useful Compose commands:
+Useful database container commands:
 
 ```bash
 docker compose ps
-docker compose logs -f repoforge
-docker compose exec repoforge pytest -q
+docker compose logs -f postgres
 docker compose down
 ```
 
-Application state and generated outputs are persisted under `./storage` through the Compose bind mount.
+Application state and generated outputs are persisted under `/var/lib/repoforge`. PostgreSQL data is persisted in the `repoforge-postgres-data` Docker volume.
 
 ## Storage Layout
 
-RepoForge keeps runtime state in `storage/`. The directory structure is tracked in Git with `.gitkeep` files, but generated contents are ignored.
+RepoForge keeps production runtime state in `/var/lib/repoforge/`. The repository still tracks a local `storage/` scaffold for tests and development, but generated contents are ignored.
 
 ```text
-storage/
+var/lib/repoforge/
 ├── uploads/       Uploaded RPMs
 ├── workspaces/    Per-bundle build workspaces, logs, repo trees, manifests
 ├── artifacts/     Generated ISO files and build outputs
 ├── keys/          Runtime GPG key material
-└── repoforge.db   SQLite database
+└── tls/           TLS certificate and key
 ```
 
-Private GPG key material stays under `storage/keys` and is never copied into generated ISO artifacts.
+Private GPG key material stays under `/var/lib/repoforge/keys` and is never copied into generated ISO artifacts.
 
 ## Builder Tooling
 
-The Compose image installs the tools used by the build services:
+Install the tools used by the build services on the RHEL host:
 
 ```text
 dnf
@@ -105,11 +127,11 @@ isoinfo
 pip
 ```
 
-The System page reports whether required tooling is available. Configuration pages remain usable even when a host is missing tools, but builds require the builder toolchain.
+The System page reports whether required tooling is available. Configuration pages remain usable when a host is missing tools, but local builds require the builder toolchain and any required Red Hat entitlement to be available to the service environment.
 
 ## Builder Deployment Modes
 
-RepoForge defaults to `container` mode for Compose-based builds against public and generic Yum/DNF repositories. Red Hat CDN repositories require valid entitlement in the selected builder environment.
+RepoForge defaults to `container` mode for historical Compose-based builds, but RHEL systemd deployments should use `local-rhel` for host execution. Red Hat CDN repositories require valid entitlement in the selected builder environment.
 
 Available modes:
 
@@ -161,15 +183,16 @@ migrations/                 Alembic configuration and migration scaffold
 scripts/                    Local helper scripts
 storage/                    Runtime state and generated output, ignored except structure
 tests/                      Service-level regression tests
-Dockerfile                  Fedora builder image
-docker-compose.yml          Preferred deployment definition
+packaging/                  PyInstaller and systemd deployment assets
+Dockerfile                  Development/build container aid
+docker-compose.yml          PostgreSQL container definition
 ```
 
 ## Design Considerations
 
 RepoForge is designed as an infrastructure management console, not a consumer-style web app. The UI favors dense tables, compact forms, status badges, build logs, and audit-friendly detail pages.
 
-The build pipeline is intentionally filesystem-oriented. Each bundle gets an isolated workspace under `storage/workspaces/{bundle_id}` and build artifacts are written under `storage/artifacts/{bundle_id}`. This makes failed builds inspectable and keeps generated ISO contents easy to reason about.
+The build pipeline is intentionally filesystem-oriented. Each bundle gets an isolated workspace under `/var/lib/repoforge/workspaces/{bundle_id}` and build artifacts are written under `/var/lib/repoforge/artifacts/{bundle_id}` in production. This makes failed builds inspectable and keeps generated ISO contents easy to reason about.
 
 Subprocess execution is centralized in `app/services/runner.py`. Commands are executed without shell strings, secrets are masked in logs, timeouts are enforced, and command failures are surfaced as structured build errors.
 
@@ -205,4 +228,4 @@ Run tests:
 pytest -q
 ```
 
-The app creates storage directories and the SQLite database on startup.
+For local development without PostgreSQL, set `REPOFORGE_DATABASE_URL` to a SQLite URL and point the storage environment variables at `storage/`. Production startup should use Alembic migrations through `repoforge migrate`.

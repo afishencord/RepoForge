@@ -5,9 +5,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 import os
 from pathlib import Path
+import sys
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+def _project_root() -> Path:
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        return Path(getattr(sys, "_MEIPASS"))
+    return Path(__file__).resolve().parents[1]
+
+
+PROJECT_ROOT = _project_root()
+DEFAULT_STORAGE_ROOT = "/var/lib/repoforge"
 
 
 def _path_from_env(name: str, default: str) -> Path:
@@ -48,14 +56,15 @@ def _tls_expected() -> bool:
 @dataclass(frozen=True)
 class Settings:
     app_name: str = "RepoForge"
-    database_url: str = os.getenv("REPOFORGE_DATABASE_URL", f"sqlite:///{PROJECT_ROOT / 'storage' / 'repoforge.db'}")
+    database_url: str = os.getenv("REPOFORGE_DATABASE_URL", f"sqlite:///{DEFAULT_STORAGE_ROOT}/repoforge.db")
     secret_key: str = os.getenv("REPOFORGE_SECRET_KEY", "repoforge-dev-secret-change-me")
     auth_secret_key: str = os.getenv("REPOFORGE_AUTH_SECRET_KEY", os.getenv("REPOFORGE_SECRET_KEY", "repoforge-dev-secret-change-me"))
-    storage_root: Path = _path_from_env("REPOFORGE_STORAGE_ROOT", "storage")
-    upload_root: Path = _path_from_env("REPOFORGE_UPLOAD_ROOT", "storage/uploads")
-    workspace_root: Path = _path_from_env("REPOFORGE_WORKSPACE_ROOT", "storage/workspaces")
-    artifact_root: Path = _path_from_env("REPOFORGE_ARTIFACT_ROOT", "storage/artifacts")
-    key_root: Path = _path_from_env("REPOFORGE_KEY_ROOT", "storage/keys")
+    storage_root: Path = _path_from_env("REPOFORGE_STORAGE_ROOT", DEFAULT_STORAGE_ROOT)
+    upload_root: Path = _path_from_env("REPOFORGE_UPLOAD_ROOT", f"{DEFAULT_STORAGE_ROOT}/uploads")
+    workspace_root: Path = _path_from_env("REPOFORGE_WORKSPACE_ROOT", f"{DEFAULT_STORAGE_ROOT}/workspaces")
+    artifact_root: Path = _path_from_env("REPOFORGE_ARTIFACT_ROOT", f"{DEFAULT_STORAGE_ROOT}/artifacts")
+    key_root: Path = _path_from_env("REPOFORGE_KEY_ROOT", f"{DEFAULT_STORAGE_ROOT}/keys")
+    auto_migrate: bool = _bool_from_env("REPOFORGE_AUTO_MIGRATE", True)
     max_upload_bytes: int = int(os.getenv("REPOFORGE_MAX_UPLOAD_BYTES", str(512 * 1024 * 1024)))
     require_system_tools_for_build: bool = os.getenv("REPOFORGE_REQUIRE_TOOLS", "1") not in {"0", "false", "False"}
     server_host: str = os.getenv("REPOFORGE_HOST", "0.0.0.0")

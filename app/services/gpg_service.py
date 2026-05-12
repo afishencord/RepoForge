@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from dataclasses import dataclass
+import os
 from pathlib import Path
 import shutil
 import tempfile
 from typing import Callable
+import uuid
 
 from .runner import CommandResult, SubprocessRunner, default_runner
 
@@ -75,18 +77,29 @@ def _copy_gpg_home(source: Path, destination: Path) -> None:
             shutil.copy2(item, target)
 
 
+def _chmod_private(path: Path) -> None:
+    if os.name == "nt":
+        return
+    path.chmod(0o700)
+
+
 @contextmanager
 def _runtime_gpg_home(persistent_home: Path):
     persistent_home.mkdir(parents=True, exist_ok=True)
-    persistent_home.chmod(0o700)
-    with tempfile.TemporaryDirectory(prefix="repoforge-gnupg-") as temp_root:
-        runtime_home = Path(temp_root) / "gnupg"
-        runtime_home.mkdir(mode=0o700)
+    _chmod_private(persistent_home)
+    temp_root = Path(tempfile.gettempdir()) / f"repoforge-gnupg-{uuid.uuid4().hex}"
+    temp_root.mkdir(parents=True, exist_ok=False)
+    try:
+        runtime_home = temp_root / "gnupg"
+        runtime_home.mkdir()
+        _chmod_private(runtime_home)
         _copy_gpg_home(persistent_home, runtime_home)
         try:
             yield runtime_home
         finally:
-            runtime_home.chmod(0o700)
+            _chmod_private(runtime_home)
+    finally:
+        shutil.rmtree(temp_root, ignore_errors=True)
 
 
 def _run_gpg(

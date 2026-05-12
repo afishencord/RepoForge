@@ -5,9 +5,11 @@ from __future__ import annotations
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from tempfile import TemporaryDirectory
 from tempfile import NamedTemporaryFile
+import shutil
+import tempfile
 from typing import Callable, Iterator
+import uuid
 
 from .runner import CommandResult, SubprocessRunner, default_runner
 
@@ -88,11 +90,14 @@ def temporary_repo_dir(repo_source: RepoSource) -> Iterator[Path | None]:
         yield None
         return
 
-    with TemporaryDirectory(prefix="repoforge-repos-") as temp_dir:
-        repo_dir = Path(temp_dir)
+    repo_dir = Path(tempfile.gettempdir()) / f"repoforge-repos-{uuid.uuid4().hex}"
+    repo_dir.mkdir(parents=True, exist_ok=False)
+    try:
         repo_file = repo_dir / f"{repo_source.repo_id}.repo"
         repo_file.write_text(create_repo_file_content(repo_source), encoding="utf-8")
         yield repo_dir
+    finally:
+        shutil.rmtree(repo_dir, ignore_errors=True)
 
 
 def with_reposdir(command: list[str], repo_dir: Path | None) -> list[str]:

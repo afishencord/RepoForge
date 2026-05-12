@@ -1,4 +1,4 @@
-"""Container entrypoint helpers for RepoForge HTTP and HTTPS serving."""
+"""RepoForge HTTP and HTTPS serving helpers."""
 
 from __future__ import annotations
 
@@ -57,16 +57,10 @@ async def https_redirect_app(scope, receive, send):  # type: ignore[no-untyped-d
 
 
 def _uvicorn_command(asgi_app: str, port: int, *, cert_file: Path | None = None, key_file: Path | None = None) -> list[str]:
-    command = [
-        sys.executable,
-        "-m",
-        "uvicorn",
-        asgi_app,
-        "--host",
-        settings.server_host,
-        "--port",
-        str(port),
-    ]
+    if getattr(sys, "frozen", False):
+        command = [sys.executable, "_serve-asgi", asgi_app, "--host", settings.server_host, "--port", str(port)]
+    else:
+        command = [sys.executable, "-m", "uvicorn", asgi_app, "--host", settings.server_host, "--port", str(port)]
     if cert_file and key_file:
         command.extend(["--ssl-certfile", str(cert_file), "--ssl-keyfile", str(key_file)])
     return command

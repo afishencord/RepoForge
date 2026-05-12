@@ -27,4 +27,4 @@ COPY . .
 RUN mkdir -p storage/uploads storage/workspaces storage/artifacts storage/keys storage/tls
 
 EXPOSE 80 443
-CMD ["python3", "-m", "app.server"]
+CMD ["python3", "-m", "app.cli", "serve"]
