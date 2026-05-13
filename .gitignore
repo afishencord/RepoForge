@@ -20,6 +20,10 @@ storage/**
 !storage/keys/.gitkeep
 !storage/tls/
 !storage/tls/.gitkeep
+!build/
+build/**
+!dist/
+dist/**
 
 .env
 *.db

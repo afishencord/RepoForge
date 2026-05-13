@@ -70,6 +70,8 @@ sudo systemctl status repoforge
 
 RepoForge listens on standard HTTP and HTTPS ports. The systemd unit grants only `CAP_NET_BIND_SERVICE` so the `repoforge` user can bind ports 80 and 443 without running the service as root. If no certificate exists and `REPOFORGE_TLS_AUTO_GENERATE=1`, RepoForge generates a self-signed certificate under `/var/lib/repoforge/tls`.
 
+If RepoForge is behind a TLS-terminating reverse proxy or mesh gateway, point the upstream at RepoForge's HTTP port and send the standard `X-Forwarded-Proto: https` and `X-Forwarded-Host` headers. Direct HTTP traffic still redirects to HTTPS, while forwarded HTTPS traffic from trusted proxy IPs is served by the application. Localhost proxies are trusted by default; set `REPOFORGE_TRUSTED_PROXY_IPS` to a comma-separated list, or `*` only on a private backend network.
+
 Open:
 
 ```text

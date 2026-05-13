@@ -76,6 +76,7 @@ class Settings:
     tls_auto_generate: bool = _bool_from_env("REPOFORGE_TLS_AUTO_GENERATE", False)
     tls_subject_alt_names: str = os.getenv("REPOFORGE_TLS_SUBJECT_ALT_NAMES", "localhost,127.0.0.1")
     session_https_only: bool = _bool_from_env("REPOFORGE_SESSION_HTTPS_ONLY", _tls_expected())
+    trusted_proxy_ips: str = os.getenv("REPOFORGE_TRUSTED_PROXY_IPS", os.getenv("FORWARDED_ALLOW_IPS", "127.0.0.1,::1"))
 
     def ensure_directories(self) -> None:
         for path in (self.storage_root, self.upload_root, self.workspace_root, self.artifact_root, self.key_root):

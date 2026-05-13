@@ -8,9 +8,14 @@ import signal
 import subprocess
 import sys
 import time
-from typing import Iterable
+from typing import Awaitable, Callable, Iterable
 
 from app.config import settings
+
+AsgiApp = Callable[[dict, Callable[[], Awaitable[dict]], Callable[[dict], Awaitable[None]]], Awaitable[None]]
+
+
+_main_app: AsgiApp | None = None
 
 
 def _host_without_port(host: str) -> str:
@@ -21,22 +26,71 @@ def _host_without_port(host: str) -> str:
     return host
 
 
-async def https_redirect_app(scope, receive, send):  # type: ignore[no-untyped-def]
-    if scope["type"] == "lifespan":
-        while True:
-            message = await receive()
-            if message["type"] == "lifespan.startup":
-                await send({"type": "lifespan.startup.complete"})
-            elif message["type"] == "lifespan.shutdown":
-                await send({"type": "lifespan.shutdown.complete"})
-                return
+def _repo_app() -> AsgiApp:
+    global _main_app
+    if _main_app is None:
+        from app.main import app
 
-    if scope["type"] != "http":
-        await send({"type": "websocket.close"})
-        return
+        _main_app = app
+    return _main_app
 
-    headers = {key.decode("latin1").lower(): value.decode("latin1") for key, value in scope.get("headers", [])}
-    host = _host_without_port(headers.get("host", "localhost"))
+
+def _headers(scope: dict) -> dict[str, str]:
+    return {key.decode("latin1").lower(): value.decode("latin1") for key, value in scope.get("headers", [])}
+
+
+def _first_header_value(headers: dict[str, str], name: str) -> str:
+    return headers.get(name, "").split(",", 1)[0].strip()
+
+
+def _forwarded_proto(headers: dict[str, str]) -> str:
+    proto = _first_header_value(headers, "x-forwarded-proto").lower()
+    if proto:
+        return proto
+    forwarded = _first_header_value(headers, "forwarded")
+    for part in forwarded.split(";"):
+        key, _, value = part.partition("=")
+        if key.strip().lower() == "proto":
+            return value.strip().strip('"').lower()
+    return ""
+
+
+def _forwarded_host(headers: dict[str, str]) -> str:
+    return _first_header_value(headers, "x-forwarded-host") or headers.get("host", "localhost")
+
+
+def _trusted_forwarded_client(scope: dict) -> bool:
+    allowed = {value.strip() for value in settings.trusted_proxy_ips.split(",") if value.strip()}
+    if "*" in allowed:
+        return True
+    client = scope.get("client")
+    if not client:
+        return False
+    return str(client[0]) in allowed
+
+
+def _scope_for_forwarded_https(scope: dict, headers: dict[str, str]) -> dict:
+    forwarded_host = _forwarded_host(headers)
+    updated_headers: list[tuple[bytes, bytes]] = []
+    replaced_host = False
+    for key, value in scope.get("headers", []):
+        if key.decode("latin1").lower() == "host":
+            updated_headers.append((key, forwarded_host.encode("latin1")))
+            replaced_host = True
+        else:
+            updated_headers.append((key, value))
+    if not replaced_host:
+        updated_headers.append((b"host", forwarded_host.encode("latin1")))
+
+    updated = dict(scope)
+    updated["scheme"] = "https"
+    updated["headers"] = updated_headers
+    return updated
+
+
+async def _redirect_to_https(scope, send):  # type: ignore[no-untyped-def]
+    headers = _headers(scope)
+    host = _host_without_port(_forwarded_host(headers))
     port = "" if settings.https_port == 443 else f":{settings.https_port}"
     raw_path = scope.get("raw_path", scope.get("path", "/"))
     path = raw_path.decode("latin1") if isinstance(raw_path, bytes) else str(raw_path)
@@ -54,6 +108,39 @@ async def https_redirect_app(scope, receive, send):  # type: ignore[no-untyped-d
         }
     )
     await send({"type": "http.response.body", "body": b""})
+
+
+async def https_redirect_app(scope, receive, send):  # type: ignore[no-untyped-def]
+    if scope["type"] == "lifespan":
+        while True:
+            message = await receive()
+            if message["type"] == "lifespan.startup":
+                await send({"type": "lifespan.startup.complete"})
+            elif message["type"] == "lifespan.shutdown":
+                await send({"type": "lifespan.shutdown.complete"})
+                return
+
+    if scope["type"] != "http":
+        await send({"type": "websocket.close"})
+        return
+
+    await _redirect_to_https(scope, send)
+
+
+async def http_entrypoint_app(scope, receive, send):  # type: ignore[no-untyped-def]
+    if scope["type"] == "lifespan":
+        await _repo_app()(scope, receive, send)
+        return
+
+    if scope["type"] == "http":
+        headers = _headers(scope)
+        if _forwarded_proto(headers) == "https" and _trusted_forwarded_client(scope):
+            await _repo_app()(_scope_for_forwarded_https(scope, headers), receive, send)
+            return
+        await _redirect_to_https(scope, send)
+        return
+
+    await send({"type": "websocket.close"})
 
 
 def _uvicorn_command(asgi_app: str, port: int, *, cert_file: Path | None = None, key_file: Path | None = None) -> list[str]:
@@ -188,7 +275,7 @@ def main() -> int:
     if tls_files:
         cert_file, key_file = tls_files
         if settings.enable_http:
-            commands.append(_uvicorn_command("app.server:https_redirect_app", settings.http_port))
+            commands.append(_uvicorn_command("app.server:http_entrypoint_app", settings.http_port))
         commands.append(_uvicorn_command("app.main:app", settings.https_port, cert_file=cert_file, key_file=key_file))
     else:
         commands.append(_uvicorn_command("app.main:app", settings.http_port))
