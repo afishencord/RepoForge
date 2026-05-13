@@ -17,7 +17,7 @@ def test_readyz_checks_database() -> None:
     with SessionLocal() as db:
         response = readyz(request, db)
 
-    assert response == {"status": "ok", "database": "ok", "login_page": "ok"}
+    assert response == {"status": "ok", "database": "ok", "login_page": "ok", "session": "not_checked"}
 
 
 def test_readyz_reports_database_failure() -> None:
@@ -28,7 +28,7 @@ def test_readyz_reports_database_failure() -> None:
     response = readyz(diagnostic_request(), BrokenSession())  # type: ignore[arg-type]
 
     assert response.status_code == 503
-    assert response.body == b'{"status":"error","database":"error","login_page":"error"}'
+    assert response.body == b'{"status":"error","database":"error","login_page":"error","session":"error"}'
 
 
 def diagnostic_request() -> Request:
@@ -79,6 +79,7 @@ def test_unhandled_request_exception_is_logged() -> None:
 
     assert messages[0]["status"] == 500
     assert (b"x-request-id", b"diagnostic-request") in messages[0]["headers"]
+    assert (b"x-repoforge-app", b"repoforge") in messages[0]["headers"]
     assert records
     assert "Unhandled request exception" in records[0][0]
     assert "diagnostic-request" in str(records[0][1])

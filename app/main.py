@@ -161,6 +161,7 @@ class RequestDiagnosticsMiddleware:
 
         request = Request(scope)
         request_id = request.headers.get("x-request-id") or secrets.token_urlsafe(16)
+        scope.setdefault("state", {})["request_id"] = request_id
         status_code: int | None = None
         response_started = False
 
@@ -170,6 +171,7 @@ class RequestDiagnosticsMiddleware:
                 response_started = True
                 status_code = int(message["status"])
                 MutableHeaders(scope=message).setdefault("X-Request-ID", request_id)
+                MutableHeaders(scope=message).setdefault("X-RepoForge-App", "repoforge")
             await send(message)
 
         try:
@@ -178,7 +180,11 @@ class RequestDiagnosticsMiddleware:
             request_logger.exception("Unhandled request exception: %s", request_log_context(request, request_id))
             if response_started:
                 raise
-            response = PlainTextResponse("Internal Server Error", status_code=500, headers={"X-Request-ID": request_id})
+            response = PlainTextResponse(
+                "Internal Server Error",
+                status_code=500,
+                headers={"X-Request-ID": request_id, "X-RepoForge-App": "repoforge"},
+            )
             await response(scope, receive, send)
             return
 
@@ -186,6 +192,10 @@ class RequestDiagnosticsMiddleware:
             context = request_log_context(request, request_id)
             context["status_code"] = status_code
             request_logger.error("Request returned server error: %s", context)
+        elif status_code:
+            context = request_log_context(request, request_id)
+            context["status_code"] = status_code
+            request_logger.info("Request completed: %s", context)
 
 
 app.add_middleware(SessionMiddleware, secret_key=settings.secret_key, same_site="lax", https_only=settings.session_https_only)
@@ -211,7 +221,7 @@ def auth_provider_enabled(db: Session, provider_type: str) -> bool:
         return False
 
 
-def validate_login_page_dependencies(request: Request, db: Session) -> None:
+def validate_login_page_dependencies(request: Request, db: Session) -> dict[str, str]:
     db.execute(text("SELECT 1")).scalar_one()
     db.scalars(select(User).limit(1)).first()
     providers = list(
@@ -223,6 +233,11 @@ def validate_login_page_dependencies(request: Request, db: Session) -> None:
         ).all()
     )
     request.state.current_user = None
+    session_status = "not_checked"
+    token = "readyz"
+    if "session" in request.scope:
+        token = csrf_token(request)
+        session_status = "ok"
     response = templates.TemplateResponse(
         request,
         "auth/login.html",
@@ -231,7 +246,7 @@ def validate_login_page_dependencies(request: Request, db: Session) -> None:
             "system_status": quick_system_status(),
             "flash_messages": [],
             "current_user": None,
-            "csrf_token": "readyz",
+            "csrf_token": token,
             "can": lambda role: False,
             "next_url": "/",
             "ldap_enabled": any(provider.provider_type == "ldap" and provider.enabled for provider in providers),
@@ -239,6 +254,7 @@ def validate_login_page_dependencies(request: Request, db: Session) -> None:
         },
     )
     response.body
+    return {"session": session_status}
 
 
 def redirect(url: str, *, notice: Optional[str] = None, level: str = "info") -> RedirectResponse:
@@ -267,11 +283,15 @@ def url_quote(value: str) -> str:
 
 
 def csrf_token(request: Request) -> str:
-    token = request.session.get("csrf_token")
-    if not token:
-        token = secrets.token_urlsafe(32)
-        request.session["csrf_token"] = token
-    return str(token)
+    try:
+        token = request.session.get("csrf_token")
+        if not token:
+            token = secrets.token_urlsafe(32)
+            request.session["csrf_token"] = token
+        return str(token)
+    except Exception:
+        logger.exception("Unable to create CSRF token for session")
+        raise
 
 
 def establish_session(request: Request, user: User) -> None:
@@ -340,13 +360,21 @@ def filter_records(records: list[Any], q: Optional[str], fields: tuple[str, ...]
 def login_page(request: Request, next: Optional[str] = None, db: Session = Depends(get_db)):
     if getattr(request.state, "current_user", None):
         return redirect(next or "/")
+    ldap_enabled = auth_provider_enabled(db, "ldap")
+    adfs_enabled = auth_provider_enabled(db, "adfs_oidc")
+    logger.info(
+        "Rendering login page request_id=%s ldap_enabled=%s adfs_enabled=%s",
+        getattr(request.state, "request_id", ""),
+        ldap_enabled,
+        adfs_enabled,
+    )
     return render(
         request,
         "auth/login.html",
         {
             "next_url": next or "/",
-            "ldap_enabled": auth_provider_enabled(db, "ldap"),
-            "adfs_enabled": auth_provider_enabled(db, "adfs_oidc"),
+            "ldap_enabled": ldap_enabled,
+            "adfs_enabled": adfs_enabled,
         },
     )
 
@@ -445,11 +473,11 @@ def healthz() -> dict[str, str]:
 @app.get("/readyz")
 def readyz(request: Request, db: Session = Depends(get_db)):
     try:
-        validate_login_page_dependencies(request, db)
+        diagnostics = validate_login_page_dependencies(request, db)
     except Exception:
         logger.exception("RepoForge readiness check failed")
-        return JSONResponse({"status": "error", "database": "error", "login_page": "error"}, status_code=503)
-    return {"status": "ok", "database": "ok", "login_page": "ok"}
+        return JSONResponse({"status": "error", "database": "error", "login_page": "error", "session": "error"}, status_code=503)
+    return {"status": "ok", "database": "ok", "login_page": "ok", **diagnostics}
 
 
 @app.get("/bundles")
