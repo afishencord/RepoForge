@@ -14,7 +14,7 @@ datas = [
     (str(ROOT / "app" / "static"), "app/static"),
 ]
 
-for package in ("alembic", "fastapi", "jinja2", "psycopg", "sqlalchemy", "starlette", "uvicorn"):
+for package in ("alembic", "fastapi", "itsdangerous", "jinja2", "psycopg", "sqlalchemy", "starlette", "uvicorn"):
     datas += copy_metadata(package)
 
 

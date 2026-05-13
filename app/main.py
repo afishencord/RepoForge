@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import hashlib
 from ipaddress import ip_address, ip_network
 import json
 import logging
@@ -17,6 +18,7 @@ from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, HTTPException
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+import itsdangerous
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 from starlette.datastructures import MutableHeaders
@@ -198,7 +200,13 @@ class RequestDiagnosticsMiddleware:
             request_logger.info("Request completed: %s", context)
 
 
-app.add_middleware(SessionMiddleware, secret_key=settings.secret_key, same_site="lax", https_only=settings.session_https_only)
+class RepoForgeSessionMiddleware(SessionMiddleware):
+    def __init__(self, app: ASGIApp, secret_key: str, **kwargs: Any) -> None:
+        super().__init__(app, secret_key=secret_key, **kwargs)
+        self.signer = itsdangerous.TimestampSigner(str(secret_key), digest_method=hashlib.sha256)
+
+
+app.add_middleware(RepoForgeSessionMiddleware, secret_key=settings.secret_key, same_site="lax", https_only=settings.session_https_only)
 app.add_middleware(RequestDiagnosticsMiddleware)
 
 

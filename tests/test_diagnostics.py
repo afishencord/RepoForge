@@ -6,7 +6,7 @@ from unittest.mock import patch
 from starlette.requests import Request
 
 from app.database import SessionLocal, init_db
-from app.main import RequestDiagnosticsMiddleware, app, readyz, request_logger
+from app.main import RepoForgeSessionMiddleware, RequestDiagnosticsMiddleware, app, readyz, request_logger
 from tests.env_values import env_value
 
 
@@ -29,6 +29,12 @@ def test_readyz_reports_database_failure() -> None:
 
     assert response.status_code == 503
     assert response.body == b'{"status":"error","database":"error","login_page":"error","session":"error"}'
+
+
+def test_session_middleware_uses_sha256_signer() -> None:
+    middleware = RepoForgeSessionMiddleware(app, secret_key="test-secret")
+
+    assert middleware.signer.digest_method().name == "sha256"
 
 
 def diagnostic_request() -> Request:
