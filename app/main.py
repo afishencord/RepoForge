@@ -19,7 +19,9 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
+from starlette.datastructures import MutableHeaders
 from starlette.middleware.sessions import SessionMiddleware
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from app.config import PROJECT_ROOT, settings
 from app.database import SessionLocal, get_db, init_db
@@ -116,9 +118,6 @@ async def require_authenticated_session(request: Request, call_next):  # type: i
     return await call_next(request)
 
 
-app.add_middleware(SessionMiddleware, secret_key=settings.secret_key, same_site="lax", https_only=settings.session_https_only)
-
-
 def trusted_proxy_source(client_host: str) -> bool:
     allowed = {value.strip() for value in settings.trusted_proxy_ips.split(",") if value.strip()}
     if "*" in allowed:
@@ -151,22 +150,46 @@ def request_log_context(request: Request, request_id: str) -> dict[str, object]:
     }
 
 
-@app.middleware("http")
-async def log_request_failures(request: Request, call_next):  # type: ignore[no-untyped-def]
-    request_id = request.headers.get("x-request-id") or secrets.token_urlsafe(16)
-    request.state.request_id = request_id
-    try:
-        response = await call_next(request)
-    except Exception:
-        request_logger.exception("Unhandled request exception: %s", request_log_context(request, request_id))
-        return PlainTextResponse("Internal Server Error", status_code=500, headers={"X-Request-ID": request_id})
+class RequestDiagnosticsMiddleware:
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
 
-    response.headers.setdefault("X-Request-ID", request_id)
-    if response.status_code >= 500:
-        context = request_log_context(request, request_id)
-        context["status_code"] = response.status_code
-        request_logger.error("Request returned server error: %s", context)
-    return response
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        request = Request(scope)
+        request_id = request.headers.get("x-request-id") or secrets.token_urlsafe(16)
+        status_code: int | None = None
+        response_started = False
+
+        async def send_with_diagnostics(message: dict[str, Any]) -> None:
+            nonlocal response_started, status_code
+            if message["type"] == "http.response.start":
+                response_started = True
+                status_code = int(message["status"])
+                MutableHeaders(scope=message).setdefault("X-Request-ID", request_id)
+            await send(message)
+
+        try:
+            await self.app(scope, receive, send_with_diagnostics)
+        except Exception:
+            request_logger.exception("Unhandled request exception: %s", request_log_context(request, request_id))
+            if response_started:
+                raise
+            response = PlainTextResponse("Internal Server Error", status_code=500, headers={"X-Request-ID": request_id})
+            await response(scope, receive, send)
+            return
+
+        if status_code and status_code >= 500:
+            context = request_log_context(request, request_id)
+            context["status_code"] = status_code
+            request_logger.error("Request returned server error: %s", context)
+
+
+app.add_middleware(SessionMiddleware, secret_key=settings.secret_key, same_site="lax", https_only=settings.session_https_only)
+app.add_middleware(RequestDiagnosticsMiddleware)
 
 
 def render(request: Request, template_name: str, context: Optional[dict[str, Any]] = None, *, status_code: int = 200):
@@ -178,6 +201,44 @@ def render(request: Request, template_name: str, context: Optional[dict[str, Any
     data.setdefault("csrf_token", csrf_token(request))
     data.setdefault("can", lambda role: has_role(getattr(request.state, "current_user", None), role))
     return templates.TemplateResponse(request, template_name, data, status_code=status_code)
+
+
+def auth_provider_enabled(db: Session, provider_type: str) -> bool:
+    try:
+        return enabled_provider(db, provider_type) is not None
+    except Exception:
+        logger.exception("Unable to load auth provider configuration for provider_type=%s", provider_type)
+        return False
+
+
+def validate_login_page_dependencies(request: Request, db: Session) -> None:
+    db.execute(text("SELECT 1")).scalar_one()
+    db.scalars(select(User).limit(1)).first()
+    providers = list(
+        db.scalars(
+            select(AuthProvider)
+            .where(AuthProvider.provider_type.in_(("ldap", "adfs_oidc")))
+            .order_by(AuthProvider.id.asc())
+            .limit(2)
+        ).all()
+    )
+    request.state.current_user = None
+    response = templates.TemplateResponse(
+        request,
+        "auth/login.html",
+        {
+            "request": request,
+            "system_status": quick_system_status(),
+            "flash_messages": [],
+            "current_user": None,
+            "csrf_token": "readyz",
+            "can": lambda role: False,
+            "next_url": "/",
+            "ldap_enabled": any(provider.provider_type == "ldap" and provider.enabled for provider in providers),
+            "adfs_enabled": any(provider.provider_type == "adfs_oidc" and provider.enabled for provider in providers),
+        },
+    )
+    response.body
 
 
 def redirect(url: str, *, notice: Optional[str] = None, level: str = "info") -> RedirectResponse:
@@ -284,8 +345,8 @@ def login_page(request: Request, next: Optional[str] = None, db: Session = Depen
         "auth/login.html",
         {
             "next_url": next or "/",
-            "ldap_enabled": enabled_provider(db, "ldap") is not None,
-            "adfs_enabled": enabled_provider(db, "adfs_oidc") is not None,
+            "ldap_enabled": auth_provider_enabled(db, "ldap"),
+            "adfs_enabled": auth_provider_enabled(db, "adfs_oidc"),
         },
     )
 
@@ -382,15 +443,13 @@ def healthz() -> dict[str, str]:
 
 
 @app.get("/readyz")
-def readyz(db: Session = Depends(get_db)):
+def readyz(request: Request, db: Session = Depends(get_db)):
     try:
-        db.execute(text("SELECT 1")).scalar_one()
-        db.scalars(select(User.id).limit(1)).first()
-        db.scalars(select(AuthProvider.id).limit(1)).first()
+        validate_login_page_dependencies(request, db)
     except Exception:
         logger.exception("RepoForge readiness check failed")
-        return JSONResponse({"status": "error", "database": "error"}, status_code=503)
-    return {"status": "ok", "database": "ok"}
+        return JSONResponse({"status": "error", "database": "error", "login_page": "error"}, status_code=503)
+    return {"status": "ok", "database": "ok", "login_page": "ok"}
 
 
 @app.get("/bundles")

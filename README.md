@@ -76,7 +76,7 @@ RepoForge listens on standard HTTP and HTTPS ports. The systemd unit grants only
 
 If RepoForge is behind a TLS-terminating reverse proxy or mesh gateway, point the upstream at RepoForge's HTTP port and send the standard `X-Forwarded-Proto: https` and `X-Forwarded-Host` headers. Direct HTTP traffic still redirects to HTTPS, while forwarded HTTPS traffic from trusted proxy IPs is served by the application. Set `REPOFORGE_TRUSTED_PROXY_IPS` in `/etc/repoforge/repoforge.env` to a comma-separated list of proxy source IPs or CIDR ranges, or `*` only on a private backend network.
 
-`/healthz` reports only process health. Use `/readyz` during deployment checks because it verifies database access and the schema used by the login page.
+`/healthz` reports only process health. Use `/readyz` during deployment checks because it verifies database access, auth-provider schema access, and login-template rendering. A healthy response includes `{"status":"ok","database":"ok","login_page":"ok"}`.
 
 Open:
 

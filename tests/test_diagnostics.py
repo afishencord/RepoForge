@@ -6,17 +6,18 @@ from unittest.mock import patch
 from starlette.requests import Request
 
 from app.database import SessionLocal, init_db
-from app.main import log_request_failures, readyz, request_logger
+from app.main import RequestDiagnosticsMiddleware, app, readyz, request_logger
 from tests.env_values import env_value
 
 
 def test_readyz_checks_database() -> None:
     init_db()
 
+    request = diagnostic_request()
     with SessionLocal() as db:
-        response = readyz(db)
+        response = readyz(request, db)
 
-    assert response == {"status": "ok", "database": "ok"}
+    assert response == {"status": "ok", "database": "ok", "login_page": "ok"}
 
 
 def test_readyz_reports_database_failure() -> None:
@@ -24,22 +25,19 @@ def test_readyz_reports_database_failure() -> None:
         def execute(self, *_args, **_kwargs):  # type: ignore[no-untyped-def]
             raise RuntimeError("database unavailable")
 
-    response = readyz(BrokenSession())  # type: ignore[arg-type]
+    response = readyz(diagnostic_request(), BrokenSession())  # type: ignore[arg-type]
 
     assert response.status_code == 503
-    assert response.body == b'{"status":"error","database":"error"}'
+    assert response.body == b'{"status":"error","database":"error","login_page":"error"}'
 
 
-def test_unhandled_request_exception_is_logged() -> None:
-    async def failing_call_next(_request):  # type: ignore[no-untyped-def]
-        raise RuntimeError("diagnostic failure")
-
+def diagnostic_request() -> Request:
     async def receive() -> dict:
         return {"type": "http.request", "body": b"", "more_body": False}
 
     client_host = env_value("REPOFORGE_TRUSTED_PROXY_IPS").split(",", 1)[0].strip().split("/", 1)[0]
     server_host = env_value("REPOFORGE_TLS_SUBJECT_ALT_NAMES").split(",", 1)[0].strip()
-    request = Request(
+    return Request(
         {
             "type": "http",
             "http_version": "1.1",
@@ -51,9 +49,25 @@ def test_unhandled_request_exception_is_logged() -> None:
             "headers": [(b"x-request-id", b"diagnostic-request")],
             "client": (client_host, 0),
             "server": (server_host, int(env_value("REPOFORGE_HTTPS_PORT"))),
+            "router": app.router,
+            "app": app,
         },
         receive,
     )
+
+
+def test_unhandled_request_exception_is_logged() -> None:
+    async def failing_app(_scope, _receive, _send):  # type: ignore[no-untyped-def]
+        raise RuntimeError("diagnostic failure")
+
+    request = diagnostic_request()
+    messages: list[dict] = []
+
+    async def receive() -> dict:
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def send(message: dict) -> None:
+        messages.append(message)
 
     records: list[tuple[str, tuple[object, ...]]] = []
 
@@ -61,10 +75,10 @@ def test_unhandled_request_exception_is_logged() -> None:
         records.append((message, args))
 
     with patch.object(request_logger, "exception", side_effect=record_exception):
-        response = asyncio.run(log_request_failures(request, failing_call_next))
+        asyncio.run(RequestDiagnosticsMiddleware(failing_app)(request.scope, receive, send))
 
-    assert response.status_code == 500
-    assert response.headers["X-Request-ID"] == "diagnostic-request"
+    assert messages[0]["status"] == 500
+    assert (b"x-request-id", b"diagnostic-request") in messages[0]["headers"]
     assert records
     assert "Unhandled request exception" in records[0][0]
     assert "diagnostic-request" in str(records[0][1])
