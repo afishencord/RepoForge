@@ -32,7 +32,18 @@ def test_hidden_asgi_command_invokes_uvicorn(monkeypatch) -> None:  # type: igno
 
     assert cli.main(["_serve-asgi", "app.main:app", "--host", host, "--port", "8443"]) == 0
 
-    assert calls == [(("app.main:app",), {"host": host, "port": 8443, "ssl_certfile": None, "ssl_keyfile": None})]
+    assert calls == [
+        (
+            ("app.main:app",),
+            {
+                "host": host,
+                "port": 8443,
+                "log_level": env_value("REPOFORGE_LOG_LEVEL").lower(),
+                "ssl_certfile": None,
+                "ssl_keyfile": None,
+            },
+        )
+    ]
 
 
 def test_rhel_storage_default_is_var_lib_repoforge() -> None:

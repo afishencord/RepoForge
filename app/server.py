@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import logging
 from ipaddress import ip_address, ip_network
 from pathlib import Path
 import signal
@@ -12,11 +13,13 @@ import time
 from typing import Awaitable, Callable, Iterable
 
 from app.config import settings
+from app.logging_config import configure_logging
 
 AsgiApp = Callable[[dict, Callable[[], Awaitable[dict]], Callable[[dict], Awaitable[None]]], Awaitable[None]]
 
 
 _main_app: AsgiApp | None = None
+logger = logging.getLogger("repoforge.server")
 
 
 def _host_without_port(host: str) -> str:
@@ -162,6 +165,7 @@ def _uvicorn_command(asgi_app: str, port: int, *, cert_file: Path | None = None,
         command = [sys.executable, "_serve-asgi", asgi_app, "--port", str(port)]
     else:
         command = [sys.executable, "-m", "uvicorn", asgi_app, "--port", str(port)]
+    command.extend(["--log-level", settings.log_level.lower()])
     if settings.server_host:
         command.extend(["--host", settings.server_host])
     if cert_file and key_file:
@@ -286,7 +290,12 @@ def _start_processes(commands: Iterable[list[str]]) -> int:
     return 0
 
 
+def _database_dialect() -> str:
+    return settings.database_url.split(":", 1)[0] or "unknown"
+
+
 def main() -> int:
+    configure_logging()
     commands: list[list[str]] = []
     tls_files = _resolve_tls_files()
     if tls_files:
@@ -297,7 +306,19 @@ def main() -> int:
     else:
         commands.append(_uvicorn_command("app.main:app", settings.http_port))
 
-    print(f"Starting RepoForge with PID {os.getpid()} using {len(commands)} server process(es).", flush=True)
+    logger.info(
+        "Starting RepoForge pid=%s processes=%s http_enabled=%s http_port=%s https_port=%s tls_enabled=%s "
+        "trusted_proxy_configured=%s database_dialect=%s log_level=%s",
+        os.getpid(),
+        len(commands),
+        settings.enable_http,
+        settings.http_port,
+        settings.https_port,
+        bool(tls_files),
+        bool(settings.trusted_proxy_ips.strip()),
+        _database_dialect(),
+        settings.log_level,
+    )
     return _start_processes(commands)
 
 

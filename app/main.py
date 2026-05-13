@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from ipaddress import ip_address, ip_network
 import json
+import logging
 from pathlib import Path
 import re
 import secrets
@@ -12,17 +14,19 @@ import traceback
 from typing import Any, Optional
 
 from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, PlainTextResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.config import PROJECT_ROOT, settings
 from app.database import SessionLocal, get_db, init_db
+from app.logging_config import configure_logging
 from app.models import (
     Artifact,
+    AuthProvider,
     BuildJob,
     Bundle,
     GPGKey,
@@ -70,6 +74,9 @@ from app.services.runner import CommandError, SubprocessRunner
 from app.services.system_tools import REQUIRED_TOOLS, check_system_tools
 
 
+configure_logging()
+logger = logging.getLogger("repoforge.app")
+request_logger = logging.getLogger("repoforge.requests")
 templates = Jinja2Templates(directory=str(PROJECT_ROOT / "app" / "templates"))
 app = FastAPI(title="RepoForge", version="0.1.0")
 app.mount("/static", StaticFiles(directory=str(PROJECT_ROOT / "app" / "static")), name="static")
@@ -78,9 +85,15 @@ app.mount("/static", StaticFiles(directory=str(PROJECT_ROOT / "app" / "static"))
 @app.on_event("startup")
 def startup() -> None:
     init_db()
+    logger.info(
+        "RepoForge application startup complete database_dialect=%s session_https_only=%s log_level=%s",
+        settings.database_url.split(":", 1)[0] or "unknown",
+        settings.session_https_only,
+        settings.log_level,
+    )
 
 
-PUBLIC_PATHS = {"/healthz", "/login", "/logout"}
+PUBLIC_PATHS = {"/healthz", "/readyz", "/login", "/logout"}
 PUBLIC_PREFIXES = ("/static/", "/auth/")
 
 
@@ -104,6 +117,56 @@ async def require_authenticated_session(request: Request, call_next):  # type: i
 
 
 app.add_middleware(SessionMiddleware, secret_key=settings.secret_key, same_site="lax", https_only=settings.session_https_only)
+
+
+def trusted_proxy_source(client_host: str) -> bool:
+    allowed = {value.strip() for value in settings.trusted_proxy_ips.split(",") if value.strip()}
+    if "*" in allowed:
+        return True
+    if client_host in allowed:
+        return True
+    try:
+        client_ip = ip_address(client_host)
+    except ValueError:
+        return False
+    for value in allowed:
+        try:
+            if client_ip in ip_network(value, strict=False):
+                return True
+        except ValueError:
+            continue
+    return False
+
+
+def request_log_context(request: Request, request_id: str) -> dict[str, object]:
+    client_host = request.client.host if request.client else ""
+    return {
+        "method": request.method,
+        "path": request.url.path,
+        "request_id": request_id,
+        "client": client_host,
+        "trusted_proxy": trusted_proxy_source(client_host) if client_host else False,
+        "forwarded_proto": request.headers.get("x-forwarded-proto", ""),
+        "forwarded_for": request.headers.get("x-forwarded-for", ""),
+    }
+
+
+@app.middleware("http")
+async def log_request_failures(request: Request, call_next):  # type: ignore[no-untyped-def]
+    request_id = request.headers.get("x-request-id") or secrets.token_urlsafe(16)
+    request.state.request_id = request_id
+    try:
+        response = await call_next(request)
+    except Exception:
+        request_logger.exception("Unhandled request exception: %s", request_log_context(request, request_id))
+        return PlainTextResponse("Internal Server Error", status_code=500, headers={"X-Request-ID": request_id})
+
+    response.headers.setdefault("X-Request-ID", request_id)
+    if response.status_code >= 500:
+        context = request_log_context(request, request_id)
+        context["status_code"] = response.status_code
+        request_logger.error("Request returned server error: %s", context)
+    return response
 
 
 def render(request: Request, template_name: str, context: Optional[dict[str, Any]] = None, *, status_code: int = 200):
@@ -316,6 +379,18 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
 @app.get("/healthz")
 def healthz() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/readyz")
+def readyz(db: Session = Depends(get_db)):
+    try:
+        db.execute(text("SELECT 1")).scalar_one()
+        db.scalars(select(User.id).limit(1)).first()
+        db.scalars(select(AuthProvider.id).limit(1)).first()
+    except Exception:
+        logger.exception("RepoForge readiness check failed")
+        return JSONResponse({"status": "error", "database": "error"}, status_code=503)
+    return {"status": "ok", "database": "ok"}
 
 
 @app.get("/bundles")

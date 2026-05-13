@@ -11,6 +11,7 @@ import uvicorn
 from app import server
 from app.config import settings
 from app.database import run_migrations
+from app.logging_config import configure_logging
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -25,6 +26,7 @@ def build_parser() -> argparse.ArgumentParser:
     asgi.add_argument("asgi_app")
     asgi.add_argument("--host", default=settings.server_host)
     asgi.add_argument("--port", type=int, required=True)
+    asgi.add_argument("--log-level", default=settings.log_level)
     asgi.add_argument("--ssl-certfile", type=Path)
     asgi.add_argument("--ssl-keyfile", type=Path)
     return parser
@@ -38,12 +40,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     if command == "serve":
         return server.main()
     if command == "migrate":
+        configure_logging()
         run_migrations()
         print("RepoForge database is migrated and seeded.", flush=True)
         return 0
     if command == "_serve-asgi":
+        log_level = configure_logging(args.log_level)
         uvicorn_kwargs = {
             "port": args.port,
+            "log_level": log_level.lower(),
             "ssl_certfile": str(args.ssl_certfile) if args.ssl_certfile else None,
             "ssl_keyfile": str(args.ssl_keyfile) if args.ssl_keyfile else None,
         }

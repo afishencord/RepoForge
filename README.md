@@ -61,6 +61,8 @@ REPOFORGE_DATABASE_URL=postgresql+psycopg://repoforge:repoforge-change-me@<datab
 
 The systemd unit loads `/etc/repoforge/repoforge.env`. RepoForge also reads `REPOFORGE_ENV_FILE`, a project `.env`, or `/etc/repoforge/repoforge.env` directly when variables are not already present in the process environment.
 
+Set `REPOFORGE_LOG_LEVEL` to `INFO`, `WARN`, or `ERROR` to control RepoForge and Uvicorn logs in the systemd journal. `INFO` is recommended while diagnosing production 500 responses.
+
 Run migrations and start the service:
 
 ```bash
@@ -73,6 +75,8 @@ sudo systemctl status repoforge
 RepoForge listens on standard HTTP and HTTPS ports. The systemd unit grants only `CAP_NET_BIND_SERVICE` so the `repoforge` user can bind ports 80 and 443 without running the service as root. If no certificate exists and `REPOFORGE_TLS_AUTO_GENERATE=1`, RepoForge generates a self-signed certificate under `/var/lib/repoforge/tls`.
 
 If RepoForge is behind a TLS-terminating reverse proxy or mesh gateway, point the upstream at RepoForge's HTTP port and send the standard `X-Forwarded-Proto: https` and `X-Forwarded-Host` headers. Direct HTTP traffic still redirects to HTTPS, while forwarded HTTPS traffic from trusted proxy IPs is served by the application. Set `REPOFORGE_TRUSTED_PROXY_IPS` in `/etc/repoforge/repoforge.env` to a comma-separated list of proxy source IPs or CIDR ranges, or `*` only on a private backend network.
+
+`/healthz` reports only process health. Use `/readyz` during deployment checks because it verifies database access and the schema used by the login page.
 
 Open:
 

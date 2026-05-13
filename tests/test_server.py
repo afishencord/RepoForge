@@ -63,6 +63,16 @@ def test_resolve_tls_files_returns_none_without_files_or_auto_generation(tmp_pat
         assert server._resolve_tls_files() is None
 
 
+def test_uvicorn_command_includes_configured_log_level() -> None:
+    settings = SimpleNamespace(server_host="", log_level=env_value("REPOFORGE_LOG_LEVEL"))
+
+    with patch.object(server, "settings", settings):
+        command = server._uvicorn_command("app.main:app", int(env_value("REPOFORGE_HTTP_PORT")))
+
+    assert "--log-level" in command
+    assert env_value("REPOFORGE_LOG_LEVEL").lower() in command
+
+
 async def ok_asgi_app(scope, receive, send):  # type: ignore[no-untyped-def]
     assert scope["type"] == "http"
     body = scope["scheme"].encode("ascii")
