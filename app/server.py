@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from ipaddress import ip_address, ip_network
 from pathlib import Path
 import signal
 import subprocess
@@ -56,7 +57,7 @@ def _forwarded_proto(headers: dict[str, str]) -> str:
 
 
 def _forwarded_host(headers: dict[str, str]) -> str:
-    return _first_header_value(headers, "x-forwarded-host") or headers.get("host", "localhost")
+    return _first_header_value(headers, "x-forwarded-host") or headers.get("host", "")
 
 
 def _trusted_forwarded_client(scope: dict) -> bool:
@@ -66,7 +67,20 @@ def _trusted_forwarded_client(scope: dict) -> bool:
     client = scope.get("client")
     if not client:
         return False
-    return str(client[0]) in allowed
+    client_host = str(client[0])
+    if client_host in allowed:
+        return True
+    try:
+        client_ip = ip_address(client_host)
+    except ValueError:
+        return False
+    for value in allowed:
+        try:
+            if client_ip in ip_network(value, strict=False):
+                return True
+        except ValueError:
+            continue
+    return False
 
 
 def _scope_for_forwarded_https(scope: dict, headers: dict[str, str]) -> dict:
@@ -145,9 +159,11 @@ async def http_entrypoint_app(scope, receive, send):  # type: ignore[no-untyped-
 
 def _uvicorn_command(asgi_app: str, port: int, *, cert_file: Path | None = None, key_file: Path | None = None) -> list[str]:
     if getattr(sys, "frozen", False):
-        command = [sys.executable, "_serve-asgi", asgi_app, "--host", settings.server_host, "--port", str(port)]
+        command = [sys.executable, "_serve-asgi", asgi_app, "--port", str(port)]
     else:
-        command = [sys.executable, "-m", "uvicorn", asgi_app, "--host", settings.server_host, "--port", str(port)]
+        command = [sys.executable, "-m", "uvicorn", asgi_app, "--port", str(port)]
+    if settings.server_host:
+        command.extend(["--host", settings.server_host])
     if cert_file and key_file:
         command.extend(["--ssl-certfile", str(cert_file), "--ssl-keyfile", str(key_file)])
     return command
@@ -161,7 +177,7 @@ def _san_config() -> str:
             continue
         prefix = "IP" if all(part.isdigit() for part in name.split(".") if part) and name.count(".") == 3 else "DNS"
         entries.append(f"{prefix}:{name}")
-    return ",".join(entries or ["DNS:localhost", "IP:127.0.0.1"])
+    return ",".join(entries)
 
 
 def _validate_cert_chain(cert_file: Path, key_file: Path) -> bool:
@@ -197,13 +213,14 @@ def _generate_self_signed_cert(cert_file: Path, key_file: Path) -> bool:
         "3650",
         "-subj",
         "/CN=RepoForge",
-        "-addext",
-        f"subjectAltName={_san_config()}",
         "-keyout",
         str(key_file),
         "-out",
         str(cert_file),
     ]
+    san_config = _san_config()
+    if san_config:
+        command[command.index("-keyout"):command.index("-keyout")] = ["-addext", f"subjectAltName={san_config}"]
     try:
         subprocess.run(command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     except FileNotFoundError:

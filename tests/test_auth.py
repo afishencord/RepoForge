@@ -26,6 +26,7 @@ from app.services.auth_service import (
     upsert_provider,
     verify_password,
 )
+from tests.env_values import env_value
 
 
 def memory_session():
@@ -108,7 +109,7 @@ def test_external_group_mapping_uses_highest_role() -> None:
             provider=provider,
             subject="cn=Sam",
             username="sam",
-            email="sam@example.test",
+            email=env_value("REPOFORGE_TEST_LDAP_EMAIL"),
             groups=("repo-users", "repo-admins"),
         ),
     )
@@ -157,8 +158,8 @@ def test_oidc_callback_provisions_user_from_mocked_claims(monkeypatch) -> None: 
         "Microsoft ADFS",
         True,
         {
-            "token_endpoint": "https://adfs.example.test/token",
-            "userinfo_endpoint": "https://adfs.example.test/userinfo",
+            "token_endpoint": env_value("REPOFORGE_TEST_ADFS_TOKEN_ENDPOINT"),
+            "userinfo_endpoint": env_value("REPOFORGE_TEST_ADFS_USERINFO_ENDPOINT"),
             "client_id": "client",
             "username_claim": "upn",
             "email_claim": "email",
@@ -167,7 +168,8 @@ def test_oidc_callback_provisions_user_from_mocked_claims(monkeypatch) -> None: 
         },
         {"client_secret": "secret"},
     )
-    set_claims = {"sub": "abc", "upn": "ada@example.test", "email": "ada@example.test", "name": "Ada", "groups": ["adfs-ops"]}
+    adfs_email = env_value("REPOFORGE_TEST_ADFS_EMAIL")
+    set_claims = {"sub": "abc", "upn": adfs_email, "email": adfs_email, "name": "Ada", "groups": ["adfs-ops"]}
     db.add(RoleMapping(provider_id=provider.id, external_group="adfs-ops", role="operator"))
     db.commit()
 
@@ -180,7 +182,7 @@ def test_oidc_callback_provisions_user_from_mocked_claims(monkeypatch) -> None: 
         lambda *args, **kwargs: SimpleNamespace(raise_for_status=lambda: None, json=lambda: set_claims),
     )
 
-    user = authenticate_oidc_callback(db, "code", "https://repoforge.test/auth/adfs/callback")
+    user = authenticate_oidc_callback(db, "code", env_value("REPOFORGE_TEST_ADFS_CALLBACK"))
 
-    assert user.username == "ada@example.test"
+    assert user.username == adfs_email
     assert user.role == "operator"

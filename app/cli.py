@@ -42,12 +42,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         print("RepoForge database is migrated and seeded.", flush=True)
         return 0
     if command == "_serve-asgi":
+        uvicorn_kwargs = {
+            "port": args.port,
+            "ssl_certfile": str(args.ssl_certfile) if args.ssl_certfile else None,
+            "ssl_keyfile": str(args.ssl_keyfile) if args.ssl_keyfile else None,
+        }
+        if args.host:
+            uvicorn_kwargs["host"] = args.host
         uvicorn.run(
             args.asgi_app,
-            host=args.host,
-            port=args.port,
-            ssl_certfile=str(args.ssl_certfile) if args.ssl_certfile else None,
-            ssl_keyfile=str(args.ssl_keyfile) if args.ssl_keyfile else None,
+            **uvicorn_kwargs,
         )
         return 0
 

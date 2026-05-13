@@ -12,7 +12,7 @@
       <div class="form-grid">
         {{ checkbox('enabled', 'Enabled', ldap_provider.enabled if ldap_provider else False) }}
         {{ checkbox('verify_tls', 'Verify TLS certificates', ldap_config.verify_tls | default(True)) }}
-        {{ text_input('server_uri', 'Server URI', ldap_config.server_uri | default(''), placeholder='ldaps://ldap.example.com') }}
+        {{ text_input('server_uri', 'Server URI', ldap_config.server_uri | default(''), placeholder='ldaps://<ldap-host>') }}
         {{ text_input('bind_dn', 'Service Bind DN', ldap_config.bind_dn | default(''), placeholder='cn=repoforge,ou=svc,dc=example,dc=com') }}
         {{ text_input('bind_password', 'Service Bind Password', '', 'password', help_text='Leave blank to keep the saved secret.') }}
         {{ text_input('user_base_dn', 'User Search Base DN', ldap_config.user_base_dn | default(''), placeholder='ou=users,dc=example,dc=com') }}
@@ -37,8 +37,8 @@
       <h2>Microsoft ADFS OIDC</h2>
       <div class="form-grid">
         {{ checkbox('enabled', 'Enabled', adfs_provider.enabled if adfs_provider else False) }}
-        {{ text_input('authorization_endpoint', 'Authorization Endpoint', adfs_config.authorization_endpoint | default(''), placeholder='https://adfs.example.com/adfs/oauth2/authorize') }}
-        {{ text_input('token_endpoint', 'Token Endpoint', adfs_config.token_endpoint | default(''), placeholder='https://adfs.example.com/adfs/oauth2/token') }}
+        {{ text_input('authorization_endpoint', 'Authorization Endpoint', adfs_config.authorization_endpoint | default(''), placeholder='https://<adfs-host>/adfs/oauth2/authorize') }}
+        {{ text_input('token_endpoint', 'Token Endpoint', adfs_config.token_endpoint | default(''), placeholder='https://<adfs-host>/adfs/oauth2/token') }}
         {{ text_input('userinfo_endpoint', 'UserInfo Endpoint', adfs_config.userinfo_endpoint | default('')) }}
         {{ text_input('jwks_uri', 'JWKS URI', adfs_config.jwks_uri | default('')) }}
         {{ text_input('issuer', 'Issuer', adfs_config.issuer | default('')) }}

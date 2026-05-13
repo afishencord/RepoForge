@@ -23,6 +23,7 @@ from app.services.gpg_service import GpgKeyRequest, export_public_key, generate_
 from app.services.iso_service import copy_into_iso_root, xorriso_command
 from app.services.manifest_service import BundleManifest, write_manifest, write_package_list
 from app.services.runner import CommandResult, SubprocessRunner, mask_args, require_relative_path
+from tests.env_values import env_value
 
 
 class RecordingRunner:
@@ -215,26 +216,28 @@ def test_dnf_and_reposync_command_construction(tmp_path: Path) -> None:
 
 
 def test_repo_file_content_supports_baseurl_and_masks_nothing_in_data() -> None:
+    baseurl = env_value("REPOFORGE_TEST_DNF_BASEURL")
+    gpgkey_url = env_value("REPOFORGE_TEST_DNF_GPGKEY_URL")
     repo = RepoSource(
         name="Docker CE Stable",
         repo_id="docker-ce-stable",
-        baseurl="https://download.docker.com/linux/rhel/$releasever/$basearch/stable",
-        gpgkey_url="https://download.docker.com/linux/rhel/gpg",
+        baseurl=baseurl,
+        gpgkey_url=gpgkey_url,
     )
 
     content = create_repo_file_content(repo)
     assert "[docker-ce-stable]" in content
     assert "enabled=1" in content
-    assert "baseurl=https://download.docker.com/linux/rhel/$releasever/$basearch/stable" in content
-    assert "gpgkey=https://download.docker.com/linux/rhel/gpg" in content
+    assert f"baseurl={baseurl}" in content
+    assert f"gpgkey={gpgkey_url}" in content
 
 
 def test_ui_defined_repo_sources_get_a_transient_reposdir() -> None:
     repo = RepoSource(
         name="Docker CE Stable",
         repo_id="docker-ce",
-        baseurl="https://download.docker.com/linux/rhel/9/x86_64/stable",
-        gpgkey_url="https://download.docker.com/linux/rhel/gpg",
+        baseurl=env_value("REPOFORGE_TEST_DNF_VERSIONED_BASEURL"),
+        gpgkey_url=env_value("REPOFORGE_TEST_DNF_GPGKEY_URL"),
     )
 
     with temporary_repo_dir(repo) as repo_dir:
@@ -260,7 +263,7 @@ def test_dependency_requirement_filtering() -> None:
 
 
 def test_gpg_key_params_content_no_protection_for_mvp() -> None:
-    content = key_params_content(GpgKeyRequest(name_real="RepoForge", name_email="repo@example.test", expire_date="1y"))
+    content = key_params_content(GpgKeyRequest(name_real="RepoForge", name_email=env_value("REPOFORGE_TEST_GPG_EMAIL"), expire_date="1y"))
 
     assert "Key-Type: RSA" in content
     assert "Name-Real: RepoForge" in content

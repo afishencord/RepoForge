@@ -1,11 +1,26 @@
 from __future__ import annotations
 
 import asyncio
+from ipaddress import ip_address
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
 from app import server
+from tests.env_values import env_value
+
+
+def configured_host() -> str:
+    return env_value("REPOFORGE_TLS_SUBJECT_ALT_NAMES").split(",", 1)[0].strip()
+
+
+def trusted_proxy_client() -> str:
+    return env_value("REPOFORGE_TRUSTED_PROXY_IPS").split(",", 1)[0].strip().split("/", 1)[0]
+
+
+def trusted_proxy_cidr() -> str:
+    client = ip_address(trusted_proxy_client())
+    return f"{client}/{client.max_prefixlen}"
 
 
 def test_resolve_tls_files_returns_valid_existing_pair(tmp_path: Path) -> None:
@@ -55,7 +70,12 @@ async def ok_asgi_app(scope, receive, send):  # type: ignore[no-untyped-def]
     await send({"type": "http.response.body", "body": body})
 
 
-def request_messages(path: str, headers: list[tuple[bytes, bytes]], query_string: bytes = b"") -> list[dict]:
+def request_messages(
+    path: str,
+    headers: list[tuple[bytes, bytes]],
+    query_string: bytes = b"",
+    client_host: str | None = None,
+) -> list[dict]:
     messages: list[dict] = []
     scope = {
         "type": "http",
@@ -66,7 +86,7 @@ def request_messages(path: str, headers: list[tuple[bytes, bytes]], query_string
         "raw_path": path.encode("ascii"),
         "query_string": query_string,
         "headers": headers,
-        "client": ("127.0.0.1", 54321),
+        "client": (client_host or trusted_proxy_client(), 54321),
     }
 
     async def receive() -> dict:
@@ -80,22 +100,39 @@ def request_messages(path: str, headers: list[tuple[bytes, bytes]], query_string
 
 
 def test_http_entrypoint_redirects_plain_http() -> None:
-    settings = SimpleNamespace(https_port=443)
+    settings = SimpleNamespace(https_port=int(env_value("REPOFORGE_HTTPS_PORT")))
+    host = configured_host()
 
     with patch.object(server, "settings", settings), patch.object(server, "_repo_app", return_value=ok_asgi_app):
-        messages = request_messages("/healthz", [(b"host", b"repoforge.mesh1labs.com")], b"probe=1")
+        messages = request_messages("/healthz", [(b"host", host.encode("ascii"))], b"probe=1")
 
     assert messages[0]["status"] == 307
-    assert (b"location", b"https://repoforge.mesh1labs.com/healthz?probe=1") in messages[0]["headers"]
+    assert (b"location", f"https://{host}/healthz?probe=1".encode("ascii")) in messages[0]["headers"]
 
 
 def test_http_entrypoint_serves_forwarded_https() -> None:
-    settings = SimpleNamespace(https_port=443, trusted_proxy_ips="127.0.0.1")
+    settings = SimpleNamespace(https_port=int(env_value("REPOFORGE_HTTPS_PORT")), trusted_proxy_ips=env_value("REPOFORGE_TRUSTED_PROXY_IPS"))
+    host = configured_host()
 
     with patch.object(server, "settings", settings), patch.object(server, "_repo_app", return_value=ok_asgi_app):
         messages = request_messages(
             "/healthz",
-            [(b"x-forwarded-proto", b"https"), (b"x-forwarded-host", b"repoforge.mesh1labs.com")],
+            [(b"x-forwarded-proto", b"https"), (b"x-forwarded-host", host.encode("ascii"))],
+        )
+
+    assert messages[0]["status"] == 200
+    assert messages[1]["body"] == b"https"
+
+
+def test_http_entrypoint_accepts_trusted_proxy_cidr() -> None:
+    settings = SimpleNamespace(https_port=int(env_value("REPOFORGE_HTTPS_PORT")), trusted_proxy_ips=trusted_proxy_cidr())
+    host = configured_host()
+
+    with patch.object(server, "settings", settings), patch.object(server, "_repo_app", return_value=ok_asgi_app):
+        messages = request_messages(
+            "/healthz",
+            [(b"x-forwarded-proto", b"https"), (b"x-forwarded-host", host.encode("ascii"))],
+            client_host=trusted_proxy_client(),
         )
 
     assert messages[0]["status"] == 200
@@ -103,12 +140,13 @@ def test_http_entrypoint_serves_forwarded_https() -> None:
 
 
 def test_http_entrypoint_rejects_untrusted_forwarded_https() -> None:
-    settings = SimpleNamespace(https_port=443, trusted_proxy_ips="10.0.0.5")
+    settings = SimpleNamespace(https_port=int(env_value("REPOFORGE_HTTPS_PORT")), trusted_proxy_ips="")
+    host = configured_host()
 
     with patch.object(server, "settings", settings), patch.object(server, "_repo_app", return_value=ok_asgi_app):
         messages = request_messages(
             "/healthz",
-            [(b"x-forwarded-proto", b"https"), (b"x-forwarded-host", b"repoforge.mesh1labs.com")],
+            [(b"x-forwarded-proto", b"https"), (b"x-forwarded-host", host.encode("ascii"))],
         )
 
     assert messages[0]["status"] == 307

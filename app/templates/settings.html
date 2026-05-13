@@ -23,7 +23,7 @@
       <h2>Remote RHEL Worker</h2>
       <div class="form-grid">
         {{ text_input('remote_worker_name', 'Worker Name', cfg.remote_worker_name | default('rhel-worker')) }}
-        {{ text_input('remote_worker_host', 'Host', cfg.remote_worker_host | default(''), placeholder='rhel-builder.example.com') }}
+        {{ text_input('remote_worker_host', 'Host', cfg.remote_worker_host | default(''), placeholder='Builder host') }}
         {{ text_input('remote_worker_username', 'Username', cfg.remote_worker_username | default(''), placeholder='repoforge') }}
         {{ text_input('remote_worker_port', 'Port', cfg.remote_worker_port | default('22'), 'number') }}
         {{ text_input('remote_worker_key_path', 'SSH Key Path', cfg.remote_worker_key_path | default(''), placeholder='/run/secrets/repoforge_worker_key') }}

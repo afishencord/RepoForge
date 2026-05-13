@@ -56,8 +56,10 @@ sudo install -m 0644 packaging/repoforge.service /etc/systemd/system/repoforge.s
 Edit `/etc/repoforge/repoforge.env` before first start. At minimum, set strong values for `REPOFORGE_SECRET_KEY`, `REPOFORGE_AUTH_SECRET_KEY`, and the PostgreSQL password. The default database URL format is:
 
 ```text
-REPOFORGE_DATABASE_URL=postgresql+psycopg://repoforge:repoforge-change-me@127.0.0.1:5432/repoforge
+REPOFORGE_DATABASE_URL=postgresql+psycopg://repoforge:repoforge-change-me@<database-host>:5432/repoforge
 ```
+
+The systemd unit loads `/etc/repoforge/repoforge.env`. RepoForge also reads `REPOFORGE_ENV_FILE`, a project `.env`, or `/etc/repoforge/repoforge.env` directly when variables are not already present in the process environment.
 
 Run migrations and start the service:
 
@@ -70,12 +72,12 @@ sudo systemctl status repoforge
 
 RepoForge listens on standard HTTP and HTTPS ports. The systemd unit grants only `CAP_NET_BIND_SERVICE` so the `repoforge` user can bind ports 80 and 443 without running the service as root. If no certificate exists and `REPOFORGE_TLS_AUTO_GENERATE=1`, RepoForge generates a self-signed certificate under `/var/lib/repoforge/tls`.
 
-If RepoForge is behind a TLS-terminating reverse proxy or mesh gateway, point the upstream at RepoForge's HTTP port and send the standard `X-Forwarded-Proto: https` and `X-Forwarded-Host` headers. Direct HTTP traffic still redirects to HTTPS, while forwarded HTTPS traffic from trusted proxy IPs is served by the application. Localhost proxies are trusted by default; set `REPOFORGE_TRUSTED_PROXY_IPS` to a comma-separated list, or `*` only on a private backend network.
+If RepoForge is behind a TLS-terminating reverse proxy or mesh gateway, point the upstream at RepoForge's HTTP port and send the standard `X-Forwarded-Proto: https` and `X-Forwarded-Host` headers. Direct HTTP traffic still redirects to HTTPS, while forwarded HTTPS traffic from trusted proxy IPs is served by the application. Set `REPOFORGE_TRUSTED_PROXY_IPS` in `/etc/repoforge/repoforge.env` to a comma-separated list of proxy source IPs or CIDR ranges, or `*` only on a private backend network.
 
 Open:
 
 ```text
-https://127.0.0.1
+https://<repoforge-host>
 ```
 
 Default local admin credentials:
@@ -161,7 +163,7 @@ Remote workers must have Python, RepoForge code, builder tooling, SSH key access
 Use an explicit RHEL path when running inside the builder container. For example:
 
 ```text
-https://example.repoforge.com/linux/rhel/9/x86_64/stable
+https://<mirror-host>/linux/rhel/9/x86_64/stable
 ```
 
 Using `$releasever` inside a builder will resolve to the host OS release value rather than the target OS version.

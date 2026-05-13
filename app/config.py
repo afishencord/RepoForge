@@ -16,6 +16,31 @@ def _project_root() -> Path:
 
 PROJECT_ROOT = _project_root()
 DEFAULT_STORAGE_ROOT = "/var/lib/repoforge"
+DEFAULT_ENV_FILE = Path("/etc/repoforge/repoforge.env")
+
+
+def _load_env_file(path: Path) -> None:
+    if not path.is_file():
+        return
+    for line in path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        key, value = stripped.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip("'\"")
+        if key:
+            os.environ.setdefault(key, value)
+
+
+def _load_env_files() -> None:
+    configured = os.getenv("REPOFORGE_ENV_FILE")
+    paths = [Path(configured)] if configured else [PROJECT_ROOT / ".env", DEFAULT_ENV_FILE]
+    for path in paths:
+        _load_env_file(path)
+
+
+_load_env_files()
 
 
 def _path_from_env(name: str, default: str) -> Path:
@@ -67,16 +92,16 @@ class Settings:
     auto_migrate: bool = _bool_from_env("REPOFORGE_AUTO_MIGRATE", True)
     max_upload_bytes: int = int(os.getenv("REPOFORGE_MAX_UPLOAD_BYTES", str(512 * 1024 * 1024)))
     require_system_tools_for_build: bool = os.getenv("REPOFORGE_REQUIRE_TOOLS", "1") not in {"0", "false", "False"}
-    server_host: str = os.getenv("REPOFORGE_HOST", "0.0.0.0")
+    server_host: str = os.getenv("REPOFORGE_HOST", "")
     http_port: int = int(os.getenv("REPOFORGE_HTTP_PORT", "80"))
     https_port: int = int(os.getenv("REPOFORGE_HTTPS_PORT", "443"))
     enable_http: bool = _bool_from_env("REPOFORGE_ENABLE_HTTP", True)
     tls_cert_file: Path | None = _optional_path_from_env("REPOFORGE_TLS_CERT_FILE")
     tls_key_file: Path | None = _optional_path_from_env("REPOFORGE_TLS_KEY_FILE")
     tls_auto_generate: bool = _bool_from_env("REPOFORGE_TLS_AUTO_GENERATE", False)
-    tls_subject_alt_names: str = os.getenv("REPOFORGE_TLS_SUBJECT_ALT_NAMES", "localhost,127.0.0.1")
+    tls_subject_alt_names: str = os.getenv("REPOFORGE_TLS_SUBJECT_ALT_NAMES", "")
     session_https_only: bool = _bool_from_env("REPOFORGE_SESSION_HTTPS_ONLY", _tls_expected())
-    trusted_proxy_ips: str = os.getenv("REPOFORGE_TRUSTED_PROXY_IPS", os.getenv("FORWARDED_ALLOW_IPS", "127.0.0.1,::1"))
+    trusted_proxy_ips: str = os.getenv("REPOFORGE_TRUSTED_PROXY_IPS", os.getenv("FORWARDED_ALLOW_IPS", ""))
 
     def ensure_directories(self) -> None:
         for path in (self.storage_root, self.upload_root, self.workspace_root, self.artifact_root, self.key_root):
